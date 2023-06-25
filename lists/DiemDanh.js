@@ -1,4 +1,4 @@
-const { Slug, Text, Checkbox, Relationship, Integer } = require('@keystonejs/fields');
+const { Slug, Text, Checkbox, Relationship, Integer, DateTime } = require('@keystonejs/fields');
 const code = require('../func/code');
 module.exports = {
     fields: {
@@ -37,9 +37,22 @@ module.exports = {
         // Note
         note: {
             type: Text
+        },
+        date: {
+            type: DateTime
         }
     },
     hooks: {
-        
+        validateInput: async ({operation, resolvedData, context}) => {
+            if(operation == "create"){
+                if(resolvedData.code){
+                    var code = resolvedData.code.replace("VT_", "");
+                    var dateParts = code.split('_');
+                    var dateObject = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+                    var isoString = dateObject.toISOString();
+                    resolvedData.date = isoString;
+                }
+            }
+        }    
     }
 };
