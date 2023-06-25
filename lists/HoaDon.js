@@ -68,18 +68,17 @@ module.exports = {
                 // Neu type == THANHTOAN
                 // 1. Tao no cho parent
                 // 2. Tao phieu thu cho parent bang dung so tien
+                // console.log("hoadon: ", resolvedData);
+                await code.updateDebtParentByLog(context, {
+                    type: "UP",
+                    valueDebt: updatedItem.total,
+                    item: "Parent",
+                    idItem: updatedItem.parent,
+                    itemS: "HoaDon",
+                    idItemS: updatedItem.id,
+                    actionLog: "CREATE"
+                });
                 if(updatedItem.type == "THANHTOAN"){
-                    // console.log("hoadon: ", resolvedData);
-                    await code.updateDebtParentByLog(context, {
-                        type: "UP",
-                        valueDebt: updatedItem.total,
-                        item: "Parent",
-                        idItem: updatedItem.parent,
-                        itemS: "HoaDon",
-                        idItemS: updatedItem.id,
-                        actionLog: "CREATE"
-                    });
-
                     // console.log("Tao phieu thu");
                     var phieuthu = await code.createPhieuThu(context, {
                         total: originalInput.total,
@@ -97,6 +96,7 @@ module.exports = {
         },
         beforeDelete: async ({context, existingItem}) => {
             console.log("DELETA", existingItem);
+            // Xoá các phần tử của hoá đơn
             const {data, error} = await context.executeGraphQL({
                 context,
                 query: gql`
@@ -121,6 +121,8 @@ module.exports = {
                     `
                 })
             });
+
+            // Xoá các log liên quan
             await code.updateDebtParentByLog(context, {
                 type: "UP",
                 valueDebt: existingItem.total,
@@ -166,6 +168,37 @@ module.exports = {
                         });
                     }
                 }
+            }
+
+            // Xoá các log có liên quan đến NGHI
+            if(existingItem.type == "NORMAL"){
+                var d = await context.executeGraphQL({
+                    context,
+                    query: gql`
+                    query {
+                        allLogs(where: {
+                        item: "Student",
+                        key: "HOC_PHI_THANG",
+                        itemS: "HoaDon",
+                        idItemS: "${existingItem.id}"
+                        }) {
+                            id item itemS idItem idItemS key value
+                        }
+                    }
+                    `
+                });
+                d.data.allLogs.forEach(async function(log){
+                    await context.executeGraphQL({
+                        context,
+                        query: gql`
+                            mutation{
+                                deleteLog (id: "${log.id}"){
+                                    id
+                                }   
+                            }
+                        `
+                    });
+                });
             }
 
         }
