@@ -18,6 +18,10 @@ module.exports = {
         camera: {
             type: Text,
             defaultValue: "NO" 
+        },
+        note: {
+            type: Text,
+            defaultValue: ""
         }
     },
     labelField: "number"
