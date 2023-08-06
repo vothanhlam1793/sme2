@@ -21,6 +21,16 @@ module.exports = {
         },
         createdAt: {
             type: DateTime
+        },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
         }
     },
     hooks: {
@@ -33,6 +43,14 @@ module.exports = {
                 }
                 resolvedData.createdAt = (new Date()).toISOString();
             } 
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
+                }
+            }
         },
         beforeDelete: async({existingItem, context}) => {
             var pks = await code.getPhieuKetSo(context, existingItem.id);

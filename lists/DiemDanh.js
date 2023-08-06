@@ -40,6 +40,16 @@ module.exports = {
         },
         date: {
             type: DateTime
+        },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
         }
     },
     hooks: {
@@ -51,6 +61,14 @@ module.exports = {
                     var dateObject = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
                     var isoString = dateObject.toISOString();
                     resolvedData.date = isoString;
+                }
+            }
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
                 }
             }
         }    

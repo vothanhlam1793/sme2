@@ -21,6 +21,16 @@ module.exports = {
         },
         note: {
             type: Text
+        },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
         }
     },
     hooks: {
@@ -32,6 +42,14 @@ module.exports = {
 
                 }
             }  
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
+                }
+            }
         }
     }
 };

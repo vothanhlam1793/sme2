@@ -27,6 +27,16 @@ module.exports = {
         },
         total: {
             type: Integer
+        },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
         }
     },
     hooks: {
@@ -34,6 +44,14 @@ module.exports = {
             // Tim thong tin hoc sinh
             if(operation == "create"){
 
+            }
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
+                }
             }
             return resolvedData;
         },

@@ -27,6 +27,16 @@ module.exports = {
         },
         idItemThu: {
             type: Text
+        },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
         }
     },
     hooks: {
@@ -40,6 +50,14 @@ module.exports = {
                 resolvedData.createdAt = (new Date()).toISOString();
                 resolvedData.updateAt = (new Date()).toISOString();
             }  
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
+                }
+            }
             return resolvedData;
         },
         beforeChange: async ({operation, resolvedData, existingItem, context}) => {

@@ -43,6 +43,16 @@ module.exports = {
             type: Text,
             defaultValue: "0"
         },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        }
     },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
@@ -57,6 +67,14 @@ module.exports = {
                 var s = resolvedData.name.split(" ");
                 s = s[s.length - 1];
                 resolvedData.sName = chuyentiengviet(s);
+            }
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
+                }
             }
         }
     }

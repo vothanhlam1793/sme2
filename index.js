@@ -26,6 +26,12 @@ const { Session, Cookie } = require("./setting/session");
 
 const keystone = new Keystone({
   adapter: new Adapter(adapterConfig),
+  cors: {
+    origin: '*', // Thiết lập origin là "*"
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
+    credentials: true,
+  },
   onConnect: process.env.CREATE_TABLES !== 'true' && initialiseData,
   sessionStore: Session.sessionStore,
   cookie: Cookie.cookie,

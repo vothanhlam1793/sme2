@@ -50,6 +50,16 @@ module.exports = {
         item: {
             type: Text,
             defaultValue: ""
+        },
+        createdBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
+        },
+        updatedBy: {
+            type: Relationship,
+            ref: "User",
+            many: false
         }
     },
     hooks: {
@@ -59,6 +69,14 @@ module.exports = {
                     resolvedData.code = await code.getCode(context, "HD");
                 } else {
 
+                }
+            }
+            const user = context.authedItem;
+            if (user) {
+                if (operation === 'create') {
+                    resolvedData.createdBy = user.id;
+                } else if (operation === 'update') {
+                    resolvedData.updatedBy = user.id;
                 }
             }
         },
