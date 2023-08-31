@@ -1,7 +1,0 @@
-PROJECT_NAME=SME-APP
-MONGO_URL=mongodb://localhost:27042/sme-data
-MONGO_URL_SESSION=mongodb://localhost:27042/sme-session
-MONGO_USER=black
-MONGO_PASS=asrkpvg7
-MONGO_AUTH_SOURCE=admin
-MODE=APPLICATION
