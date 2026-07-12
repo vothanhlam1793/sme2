@@ -6,7 +6,7 @@ const { MongoClient } = require('mongodb');
 var db = new MongoClient(process.env.MONGO_URL_SESSION,{
     auth: {
         "user": "black",
-        "password": "asrkpvg7"
+        "password": "local-dev-password"
     },
     authSource: "admin",
     useNewUrlParser: true,

@@ -14,9 +14,6 @@ const PROJECT_NAME = 'sme';
 
 const adapterConfig = { 
   mongoUri: process.env.MONGO_URL,
-  "user": process.env.MONGO_USER,
-  "pass": process.env.MONGO_PASS,
-  authSource: process.env.MONGO_AUTH_SOURCE,
   useNewUrlParser: true,
   useUnifiedTopology: true
 };
