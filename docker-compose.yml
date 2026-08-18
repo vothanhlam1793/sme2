@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "3000"
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME:-sme}
+      COOKIE_SECRET: ${COOKIE_SECRET:?Set COOKIE_SECRET in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-lax}
+      MONGO_URL: ${MONGO_URL:?Set MONGO_URL in .env}
+      MONGO_URL_SESSION: ${MONGO_URL_SESSION:?Set MONGO_URL_SESSION in .env}
+      MONGO_USER: ${MONGO_USER:?Set MONGO_USER in .env}
+      MONGO_PASS: ${MONGO_PASS:?Set MONGO_PASS in .env}
+      MONGO_AUTH_SOURCE: ${MONGO_AUTH_SOURCE:-admin}
+    restart: unless-stopped
