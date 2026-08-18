@@ -12,9 +12,8 @@ RUN yarn install --frozen-lockfile
 COPY . .
 
 RUN NODE_ENV=production \
+    KEYSTONE_BUILD=true \
     COOKIE_SECRET=build-only \
-    MONGO_URL=mongodb://localhost/sme \
-    MONGO_URL_SESSION=mongodb://localhost/sme \
     yarn keystone build && yarn cache clean
 
 FROM node:${NODE_VERSION}-alpine
