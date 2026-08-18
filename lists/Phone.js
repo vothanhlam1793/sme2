@@ -24,5 +24,8 @@ module.exports = {
             defaultValue: ""
         }
     },
+    access: {
+        auth: true,
+    },
     labelField: "number"
 };

@@ -52,6 +52,9 @@ module.exports = {
             many: false
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
             console.log("VALIDATE");
@@ -66,7 +69,6 @@ module.exports = {
                 }
             }
             const user = context.authedItem;
-            console.log(context);
             if (user) {
                 if (operation === 'create') {
                     resolvedData.createdBy = user.id;

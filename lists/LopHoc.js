@@ -19,6 +19,9 @@ module.exports = {
             type: Text
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         beforeDelete: async ({context, existingItem}) => {
             // Can xu ly la khong xoa du lieu khi hoc sinh con

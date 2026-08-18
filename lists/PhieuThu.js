@@ -39,6 +39,9 @@ module.exports = {
             many: false
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
             if(operation == "create"){

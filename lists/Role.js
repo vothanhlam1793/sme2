@@ -18,5 +18,8 @@ module.exports = {
             defaultValue: 1
         }
     },
+    access: {
+        auth: true,
+    },
     labelField: "name"
 };

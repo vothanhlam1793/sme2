@@ -62,6 +62,9 @@ module.exports = {
             many: false
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
             if(operation == "create"){
@@ -98,22 +101,19 @@ module.exports = {
                 });
                 if(updatedItem.type == "THANHTOAN"){
                     // console.log("Tao phieu thu");
-                    var phieuthu = await code.createPhieuThu(context, {
+                    await code.createPhieuThu(context, {
                         total: originalInput.total,
                         idParent: updatedItem.parent,
                         item: "HoaDon",
                         idItem: updatedItem.id
                     });
-                    resolvedData.phieuthu = phieuthu.id;
                 }
             } 
 
         },
         beforeChange: async ({operation, resolvedData, existingItem, context}) => {
-            console.log("before", resolvedData, operation);
         },
         beforeDelete: async ({context, existingItem}) => {
-            console.log("DELETA", existingItem);
             // Xoá các phần tử của hoá đơn
             const {data, error} = await context.executeGraphQL({
                 context,
@@ -168,7 +168,7 @@ module.exports = {
                     `
                 });
                 if(ret.errors){
-                    console.log("ERROR - DELETE - HOADON", errors);
+                    console.log("ERROR - DELETE - HOADON", ret.errors);
                     return;
                 } else {
                     if(ret.data.allPhieuThus.length > 0){

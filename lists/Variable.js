@@ -18,5 +18,8 @@ module.exports = {
             type: Text
         }
     },
+    access: {
+        auth: true,
+    },
     labelField: "key",
 };

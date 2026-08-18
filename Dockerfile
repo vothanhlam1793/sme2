@@ -20,7 +20,7 @@ RUN yarn install
 
 ADD . /home/node
 
-RUN yarn build && yarn cache clean
+RUN NODE_ENV=production ./node_modules/.bin/keystone build && yarn cache clean
 
 # Runtime container
 FROM node:${NODE_VERSION}-alpine
@@ -30,4 +30,5 @@ WORKDIR /home/node
 COPY --from=build /home/node /home/node
 
 EXPOSE 3000
-CMD ["./dumb-init", "yarn", "start"]
+ENV NODE_ENV=production
+CMD ["./dumb-init", "node", "./node_modules/.bin/keystone", "start"]

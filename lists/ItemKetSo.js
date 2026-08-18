@@ -39,6 +39,9 @@ module.exports = {
             many: false
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         resolveInput: async ({operation, resolvedData, existingItem, context}) => {
             // Tim thong tin hoc sinh

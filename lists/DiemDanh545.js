@@ -32,6 +32,9 @@ module.exports = {
             type: Text,
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         
     }

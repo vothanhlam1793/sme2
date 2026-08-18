@@ -33,11 +33,14 @@ module.exports = {
             many: false
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
             if(operation == "create"){
                 if(resolvedData.code == undefined){
-                    resolvedData.code = await code.getCode(context, "PDD");
+                    resolvedData.code = await code.getCode(context, "PKS");
                 } else {
 
                 }

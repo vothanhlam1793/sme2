@@ -54,8 +54,11 @@ module.exports = {
             many: false
         }
     },
+    access: {
+        auth: true,
+    },
     hooks: {
-        validateInput: async ({operation, resolvedData, context}) => {
+        validateInput: async ({operation, resolvedData, existingItem, context, originalInput}) => {
             if(operation == "create"){
                 if(resolvedData.status == undefined){
                     resolvedData.status = "DANG_KY"

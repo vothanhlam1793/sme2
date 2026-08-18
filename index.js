@@ -5,12 +5,13 @@ const { AdminUIApp } = require('@keystonejs/app-admin-ui');
 const initialiseData = require('./initial-data');
 
 
-// File enviroment
+// Prefer a local override file for development, then fall back to the copied production env.
 const dotenv = require('dotenv')
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env.local' })
 dotenv.config()
 
 const { MongooseAdapter: Adapter } = require('@keystonejs/adapter-mongoose');
-const PROJECT_NAME = 'sme';
+const PROJECT_NAME = process.env.PROJECT_NAME || 'sme';
 
 const adapterConfig = { 
   mongoUri: process.env.MONGO_URL,
@@ -22,6 +23,10 @@ const adapterConfig = {
 };
 
 const { Session, Cookie } = require("./setting/session");
+
+if (!process.env.COOKIE_SECRET) {
+  throw new Error('COOKIE_SECRET must be set in the environment');
+}
 
 
 const keystone = new Keystone({
@@ -35,7 +40,7 @@ const keystone = new Keystone({
   onConnect: process.env.CREATE_TABLES !== 'true' && initialiseData,
   sessionStore: Session.sessionStore,
   cookie: Cookie.cookie,
-  cookieSecret: "CHUNGTANGHIRANGNOLAMOTTHONGSOCANPHAICAITHIEN"
+  cookieSecret: process.env.COOKIE_SECRET
 });
 
 keystone.createList('Student', require("./lists/Student"));

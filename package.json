@@ -11,9 +11,9 @@
     "node": ">=10.0.0"
   },
   "scripts": {
-    "dev": "cross-env NODE_ENV=development DISABLE_LOGGING=true keystone dev",
-    "build": "cross-env NODE_ENV=production keystone build",
-    "start": "cross-env NODE_ENV=production keystone start",
+    "dev": "cross-env NODE_ENV=development DISABLE_LOGGING=true NODE_OPTIONS=--openssl-legacy-provider keystone dev",
+    "build": "cross-env NODE_ENV=production NODE_OPTIONS=--openssl-legacy-provider keystone build",
+    "start": "cross-env NODE_ENV=production NODE_OPTIONS=--openssl-legacy-provider keystone start",
     "create-tables": "cross-env CREATE_TABLES=true keystone create-tables"
   },
   "dependencies": {

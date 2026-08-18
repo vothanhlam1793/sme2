@@ -11,6 +11,9 @@ module.exports = {
         name: {
             type: Text,
         },
+        parents: {
+            type: Text,
+        },
         phone: {
             type: Relationship,
             ref: "Phone.parent",
@@ -38,6 +41,9 @@ module.exports = {
             ref: "User",
             many: false
         }
+    },
+    access: {
+        auth: true,
     },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {

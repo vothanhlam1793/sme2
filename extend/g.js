@@ -78,7 +78,7 @@ async function createPhone(keystone, name, phone) {
   });
   return ret.data.createPhone;
 }
-async function createParent(keystone, name, ids) {
+async function createParent(keystone, name, parents, ids) {
   var str = "[";
   ids.forEach(function (id, index) {
     if (id == undefined) {
@@ -91,17 +91,20 @@ async function createParent(keystone, name, ids) {
     }
   });
   str += "]";
+  var parentsEscaped = parents ? parents.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : '';
   var ret = await keystone.executeGraphQL({
     query: gql`
         mutation {
             createParent (data: {
               name: "${name}",
+              parents: "${parentsEscaped}",
               phone: {
                 connect: ${str}
               },
             }) {
               id
               name
+              parents
               phone {
                 id
                 name
@@ -558,10 +561,10 @@ function extend(keystone) {
                     }
                     `
           });
-          console.log("SEARCH: ", data, errors);
+          
           var parents = [];
           data.allPhones.forEach(async function (phone) {
-            console.log("PHONE: ", phone);
+            
             if (phone.parent != null) {
               parents = parents.concat(phone.parent);
             } else {
@@ -593,7 +596,8 @@ function extend(keystone) {
               var mom = await createPhone(keystone, nameMom, phoneMom);
               idPhoneMom = mom.id;
             }
-            var parent = await createParent(keystone, nameStudent, [idPhoneDad, idPhoneMom]);
+            var parentInfo = JSON.stringify({ dadName: nameDad, dadPhone: phoneDad, momName: nameMom, momPhone: phoneMom });
+            var parent = await createParent(keystone, nameStudent, parentInfo, [idPhoneDad, idPhoneMom]);
             var student = await createStudent(keystone, nameStudent, birthday, parent.id);
             return {
               message: "SUCCESS",
@@ -699,13 +703,8 @@ function extend(keystone) {
             // Tạo thành công
             var idPKS = pks.data.createPhieuKetSo.id;
             var lophoc = ret.data.LopHoc;
-            var temp = {
-              data: {
-
-              }
-            };
-            for (var j = 0; j < lophoc.hocsinhs.length; j++) {
-              temp = await keystone.executeGraphQL({
+            var createItemPromises = lophoc.hocsinhs.map(function (hocsinh) {
+              return keystone.executeGraphQL({
                 query: gql`
                             mutation {
                                 createItemKetSo (data: {
@@ -722,7 +721,7 @@ function extend(keystone) {
                                   },
                                   hocsinh: {
                                     connect: {
-                                      id: "${lophoc.hocsinhs[j].id}"
+                                      id: "${hocsinh.id}"
                                     }
                                   },
                                   data: "${JSON.stringify({})}",
@@ -733,25 +732,35 @@ function extend(keystone) {
                             }
                             `
               });
-              if (temp.data.createItemKetSo.id) {
-                continue;
-              } else {
-                // Đang tạo nhưng fail giữa chừng
-                // Xoá phiếu kế sổ
-                // console.log(temp);
-                await keystone.executeGraphQL({
-                  query: gql`
+            });
+
+            var createItemResults = await Promise.allSettled(createItemPromises);
+            var hasCreateItemError = createItemResults.some(function (result) {
+              if (result.status !== "fulfilled") {
+                return true;
+              }
+              if (!result.value || !result.value.data || !result.value.data.createItemKetSo || !result.value.data.createItemKetSo.id) {
+                return true;
+              }
+              if (result.value.errors && result.value.errors.length > 0) {
+                return true;
+              }
+              return false;
+            });
+
+            if (hasCreateItemError) {
+              await keystone.executeGraphQL({
+                query: gql`
                                 mutation {
                                     deletePhieuKetSo(id: "${idPKS}"){
                                       id
                                     }
                                 }
                                 `
-                })
-                return {
-                  message: "ERROR",
-                  content: `Dang tao bi dung giu chung`
-                }
+              })
+              return {
+                message: "ERROR",
+                content: `Dang tao bi dung giu chung`
               }
             }
 

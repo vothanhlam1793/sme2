@@ -23,6 +23,9 @@ module.exports = {
         }
     },
 
+    access: {
+        auth: true,
+    },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
             resolvedData.total = resolvedData.price * resolvedData.amount;  
