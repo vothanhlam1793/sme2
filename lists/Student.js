@@ -21,11 +21,13 @@ module.exports = {
             type: Relationship,
             ref: "Parent.hocsinhs",
             many: false,
+            isIndexed: true,
         },
         lophoc: {
             type: Relationship,
             ref: "LopHoc.hocsinhs",
-            many: false
+            many: false,
+            isIndexed: true
         },
         hocphi: {
             type: Text
