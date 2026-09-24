@@ -60,6 +60,9 @@ keystone.createList('PhieuKetSo', require("./lists/PhieuKetSo"));
 keystone.createList('PhieuThu', require("./lists/PhieuThu"));
 keystone.createList('DiemDanh545', require("./lists/DiemDanh545"));
 keystone.createList('Log', require("./lists/Log"));
+keystone.createList('CashTransaction', require("./lists/CashTransaction"));
+keystone.createList('PaymentSettlement', require("./lists/PaymentSettlement"));
+keystone.createList('Notification', require("./lists/Notification"));
 
 require("./extend/g").extend(keystone);
 
@@ -74,10 +77,13 @@ const authStrategy = keystone.createAuthStrategy({
   // config: { protectIdentities: process.env.NODE_ENV === 'production' },
 });
 
+const createParentPortalRouter = require('./routes/parentPortal');
+
 module.exports = {
   keystone,
   configureExpress: app => {
     app.set('trust proxy', 1);
+    app.use('/api/portal', createParentPortalRouter(keystone));
   },
   apps: [
     new GraphQLApp(),

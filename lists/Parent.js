@@ -31,6 +31,10 @@ module.exports = {
         debt: {
             type: Integer
         },
+        balance: {
+            type: Integer,
+            defaultValue: 0
+        },
         createdBy: {
             type: Relationship,
             ref: "User",
