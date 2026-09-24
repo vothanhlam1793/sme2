@@ -1,6 +1,8 @@
 const { Text, Checkbox, Relationship, Integer, DateTime } = require('@keystonejs/fields');
 const code = require('../func/code');
+const SettlementService = require('../func/settlement');
 const { gql } = require('apollo-server-express');
+
 module.exports = {
     fields: {
         createdAt: {
@@ -42,7 +44,6 @@ module.exports = {
             ref: "PhieuThu",
             many: false
         },
-        // Danh cho lien ket ngoai
         idItem: {
             type: Text,
             defaultValue: ""
@@ -66,12 +67,10 @@ module.exports = {
         auth: true,
     },
     hooks: {
-        validateInput: async ({operation, resolvedData, context}) => {
-            if(operation == "create"){
-                if(resolvedData.code == undefined){
+        validateInput: async ({ operation, resolvedData, context }) => {
+            if (operation === "create") {
+                if (!resolvedData.code) {
                     resolvedData.code = await code.getCode(context, "HD");
-                } else {
-
                 }
             }
             const user = context.authedItem;
@@ -82,144 +81,62 @@ module.exports = {
                     resolvedData.updatedBy = user.id;
                 }
             }
+            return resolvedData;
         },
-        afterChange: async ({operation, updatedItem, context, originalInput}) => {
-            // console.log("AFTER", operation, originalInput);
-            if(operation == "create"){
-                // Neu type == THANHTOAN
-                // 1. Tao no cho parent
-                // 2. Tao phieu thu cho parent bang dung so tien
-                // console.log("hoadon: ", resolvedData);
-                await code.updateDebtParentByLog(context, {
-                    type: "UP",
-                    valueDebt: updatedItem.total,
-                    item: "Parent",
-                    idItem: updatedItem.parent,
-                    itemS: "HoaDon",
-                    idItemS: updatedItem.id,
-                    actionLog: "CREATE"
+        afterChange: async ({ operation, updatedItem, context, originalInput }) => {
+            if (operation === "create" && updatedItem.parent && updatedItem.total) {
+                // 1. Tăng công nợ debt và tự động cấn trừ nếu có sẵn balance
+                await SettlementService.processBillCreated(context, {
+                    parentId: updatedItem.parent,
+                    amount: updatedItem.total,
+                    itemType: 'HoaDon',
+                    itemId: updatedItem.id,
+                    note: `Phát sinh hóa đơn ${updatedItem.code || ''}`
                 });
-                if(updatedItem.type == "THANHTOAN"){
-                    // console.log("Tao phieu thu");
-                    await code.createPhieuThu(context, {
-                        total: originalInput.total,
-                        idParent: updatedItem.parent,
-                        item: "HoaDon",
-                        idItem: updatedItem.id
+
+                // 2. Nếu hóa đơn loại THANHTOAN (thanh toán ngay tại quầy)
+                if (updatedItem.type === "THANHTOAN") {
+                    await SettlementService.processInflowAndSettle(context, {
+                        parentId: updatedItem.parent,
+                        amount: originalInput.total || updatedItem.total,
+                        paymentMethod: 'CASH',
+                        bankRef: updatedItem.code || '',
+                        bankDescription: `Thanh toán ngay Hóa đơn ${updatedItem.code || ''}`,
+                        settleType: 'SCHOOL_TRANSFER',
+                        userId: updatedItem.createdBy || null,
+                        note: `Phiếu thu kèm Hóa đơn ${updatedItem.code || ''}`
                     });
                 }
-            } 
-
+            }
         },
-        beforeChange: async ({operation, resolvedData, existingItem, context}) => {
-        },
-        beforeDelete: async ({context, existingItem}) => {
-            // Xoá các phần tử của hoá đơn
-            const {data, error} = await context.executeGraphQL({
+        beforeDelete: async ({ context, existingItem }) => {
+            // Xoá các Item chi tiết của hoá đơn
+            const { data, error } = await context.executeGraphQL({
                 context,
                 query: gql`
-                query {
-                    HoaDon(where: {id: "${existingItem.id}"}){
-                      items{
-                        id
-                      }
+                    query {
+                        HoaDon(where: {id: "${existingItem.id}"}){
+                            items {
+                                id
+                            }
+                        }
                     }
-                }
                 `
             });
-            data.HoaDon.items.forEach(async function (e){
-                await context.executeGraphQL({
-                    context,
-                    query: gql`
-                        mutation{
-                            deleteItem (id: "${e.id}"){
-                                id
-                            }   
-                        }
-                    `
-                })
-            });
-
-            // Xoá các log liên quan
-            await code.updateDebtParentByLog(context, {
-                type: "UP",
-                valueDebt: existingItem.total,
-                item: "Parent",
-                idItem: existingItem.parent,
-                itemS: "HoaDon",
-                idItemS: existingItem.id,
-                actionLog: "DELETE"
-            });
-            // console.log("EXIST",existingItem);
-                // Neu type == THANHTOAN
-                // 1. Xoa phieu thu da ket hop
-                // 2. Xoa no da tao cho parent
-            if(existingItem.type == "THANHTOAN"){
-                var ret = await context.executeGraphQL({
-                    query: gql`
-                    query {
-                        allPhieuThus(where: {
-                          itemThu: "HoaDon",
-                          idItemThu: "${existingItem.id}"
-                        }){
-                          id
-                        }
-                      }
-                    `
-                });
-                if(ret.errors){
-                    console.log("ERROR - DELETE - HOADON", ret.errors);
-                    return;
-                } else {
-                    if(ret.data.allPhieuThus.length > 0){
-                        ret.data.allPhieuThus.forEach(async function(phieuthu){
-                            await context.executeGraphQL({
-                                context,
-                                query: gql`
-                                mutation {
-                                    deletePhieuThu(id: "${phieuthu.id}"){
-                                    id
-                                    }
-                                }
-                                `
-                            });
-                        });
-                    }
-                }
-            }
-
-            // Xoá các log có liên quan đến NGHI
-            if(existingItem.type == "NORMAL"){
-                var d = await context.executeGraphQL({
-                    context,
-                    query: gql`
-                    query {
-                        allLogs(where: {
-                        item: "Student",
-                        key: "HOC_PHI_THANG",
-                        itemS: "HoaDon",
-                        idItemS: "${existingItem.id}"
-                        }) {
-                            id item itemS idItem idItemS key value
-                        }
-                    }
-                    `
-                });
-                d.data.allLogs.forEach(async function(log){
+            if (data?.HoaDon?.items) {
+                for (const e of data.HoaDon.items) {
                     await context.executeGraphQL({
                         context,
                         query: gql`
-                            mutation{
-                                deleteLog (id: "${log.id}"){
+                            mutation {
+                                deleteItem (id: "${e.id}"){
                                     id
                                 }   
                             }
                         `
                     });
-                });
+                }
             }
-
         }
     }
-
 };

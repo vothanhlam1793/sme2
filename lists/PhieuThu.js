@@ -1,5 +1,7 @@
-const { Slug, Text, Checkbox, Relationship,Integer, DateTime } = require('@keystonejs/fields');
+const { Slug, Text, Checkbox, Relationship, Integer, DateTime } = require('@keystonejs/fields');
 const code = require('../func/code');
+const SettlementService = require('../func/settlement');
+
 module.exports = {
     fields: {
         code: {
@@ -43,16 +45,16 @@ module.exports = {
         auth: true,
     },
     hooks: {
-        validateInput: async ({operation, resolvedData, context}) => {
-            if(operation == "create"){
-                if(resolvedData.code == undefined){
+        validateInput: async ({ operation, resolvedData, context }) => {
+            if (operation === "create") {
+                if (!resolvedData.code) {
                     resolvedData.code = await code.getCode(context, "PTT");
-                } else {
-
                 }
-                resolvedData.createdAt = (new Date()).toISOString();
+                if (!resolvedData.createdAt) {
+                    resolvedData.createdAt = (new Date()).toISOString();
+                }
                 resolvedData.updateAt = (new Date()).toISOString();
-            }  
+            }
             const user = context.authedItem;
             if (user) {
                 if (operation === 'create') {
@@ -63,47 +65,36 @@ module.exports = {
             }
             return resolvedData;
         },
-        beforeChange: async ({operation, resolvedData, existingItem, context}) => {
-            if(operation == "update"){
-                var parent = await code.getParent(context, existingItem.parent);
-                var debt = parent.debt;
-                if(debt == null){
-                    debt = 0;
+        afterChange: async ({ operation, updatedItem, context }) => {
+            // Khi tạo Phiếu Thu tiền mặt -> Nạp vào balance và tự động kích hoạt Settlement cấn trừ debt
+            if (operation === "create" && updatedItem.parent && updatedItem.total) {
+                try {
+                    const totalNum = parseInt(updatedItem.total, 10);
+                    if (totalNum > 0) {
+                        await SettlementService.processInflowAndSettle(context, {
+                            parentId: updatedItem.parent,
+                            amount: totalNum,
+                            paymentMethod: 'CASH',
+                            bankRef: updatedItem.code || '',
+                            bankDescription: updatedItem.ghichu || 'Thu tiền mặt tại quầy',
+                            settleType: 'SCHOOL_TRANSFER',
+                            userId: updatedItem.createdBy || null,
+                            note: updatedItem.ghichu || `Phiếu thu tiền mặt ${updatedItem.code || ''}`
+                        });
+                    } else if (totalNum < 0) {
+                        // Số tiền âm -> Phiếu Chi / Hoàn trả
+                        await SettlementService.processOutflow(context, {
+                            parentId: updatedItem.parent,
+                            amount: Math.abs(totalNum),
+                            paymentMethod: 'CASH',
+                            reason: updatedItem.ghichu || `Hoàn trả tiền theo phiếu ${updatedItem.code || ''}`,
+                            userId: updatedItem.createdBy || null
+                        });
+                    }
+                } catch (err) {
+                    console.error('Lỗi sau khi tạo PhieuThu trong SettlementService:', err);
                 }
-                debt -= parseInt(resolvedData.total);
-                debt += parseInt(existingItem.total);
-                code.updateParentDebt(context, {
-                    id: parent.id,
-                    debt: debt
-                });
-                resolvedData.updateAt = (new Date()).toISOString();
-            }      
-        },
-        afterChange: async ({operation, resolvedData, existingItem, updatedItem, context}) => {
-            if(operation == "create"){
-                // console.log("CREATE", "updatedebt");
-                await code.updateDebtParentByLog(context, {
-                    type: "DOWN",
-                    valueDebt: updatedItem.total,
-                    item: "Parent",
-                    idItem: updatedItem.parent,
-                    itemS: "PhieuThu",
-                    idItemS: updatedItem.id,
-                    actionLog: "CREATE"
-                });
             }
-            // updatedItem
-        },
-        beforeDelete: async ({operation, resolvedData, existingItem, context}) => {
-            await code.updateDebtParentByLog(context, {
-                type: "UP",
-                valueDebt: existingItem.total,
-                item: "Parent",
-                idItem: existingItem.parent,
-                itemS: "PhieuThu",
-                idItemS: existingItem.id,
-                actionLog: "DELETE"
-            });
-        },
+        }
     }
 };

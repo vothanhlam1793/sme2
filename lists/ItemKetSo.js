@@ -1,5 +1,7 @@
 const { Slug, Text, Checkbox, Relationship, Integer, DateTime } = require('@keystonejs/fields');
 const code = require('../func/code');
+const SettlementService = require('../func/settlement');
+
 module.exports = {
     fields: {
         data: {
@@ -43,11 +45,7 @@ module.exports = {
         auth: true,
     },
     hooks: {
-        resolveInput: async ({operation, resolvedData, existingItem, context}) => {
-            // Tim thong tin hoc sinh
-            if(operation == "create"){
-
-            }
+        resolveInput: async ({ operation, resolvedData, existingItem, context }) => {
             const user = context.authedItem;
             if (user) {
                 if (operation === 'create') {
@@ -58,58 +56,30 @@ module.exports = {
             }
             return resolvedData;
         },
-        afterChange: async ({operation, resolvedData, existingItem, updatedItem, context}) => {
-            if(operation == "create"){
-                var student = await code.getStudent(context, updatedItem.hocsinh);
-                await code.updateDebtParentByLog(context, {
-                    type: "UP",
-                    valueDebt: updatedItem.total,
-                    item: "Parent",
-                    idItem: student.parent.id,
-                    itemS: "ItemKetSo",
-                    idItemS: updatedItem.id,
-                    actionLog: "CREATE"
-                });
+        afterChange: async ({ operation, updatedItem, context }) => {
+            if (operation === "create" && updatedItem.hocsinh && updatedItem.total) {
+                const student = await code.getStudent(context, updatedItem.hocsinh);
+                if (student && student.parent && student.parent.id) {
+                    await SettlementService.processBillCreated(context, {
+                        parentId: student.parent.id,
+                        amount: updatedItem.total,
+                        itemType: 'ItemKetSo',
+                        itemId: updatedItem.id,
+                        note: `Phát sinh học phí kết sổ ${updatedItem.code || ''}`
+                    });
+                }
             }
         },
-        beforeChange: async ({operation, resolvedData, existingItem, context}) => {
-            // console.log("UPDATE", operation, resolvedData, existingItem);
-            if(operation == "update"){
-                var reso = JSON.parse(resolvedData.data);
-                var student = await code.getStudent(context, existingItem.hocsinh);
-                await code.updateDebtParentByLog(context, {
-                    type: "UP",
-                    valueDebt: reso.total,
-                    item: "Parent",
-                    idItem: student.parent.id,
-                    itemS: "ItemKetSo",
-                    idItemS: existingItem.id,
-                    actionLog: "UPDATE"
-                });
-
-                // Cap nhat hoa don voi phieu ket so
+        beforeChange: async ({ operation, resolvedData, existingItem, context }) => {
+            if (operation === "update") {
+                const reso = JSON.parse(resolvedData.data || '{}');
+                // Cập nhật hóa đơn với phiếu kết sổ nếu có
                 await code.updateHoaDonWithItemKetSo(context, reso, existingItem);
             }
             return resolvedData;
         },
-        beforeDelete: async ({existingItem, context}) => {
-            var student = await code.getStudent(context, existingItem.hocsinh);
-            await code.updateDebtParentByLog(context, {
-                type: "DOWN",
-                valueDebt: existingItem.total,
-                item: "Parent",
-                idItem: student.parent.id,
-                itemS: "ItemKetSo",
-                idItemS: existingItem.id,
-                actionLog: "DELETE"
-            });
-
-            await code.updateHoaDonWithItemKetSo(context, 
-                {
-                    hoadons: [],
-                },
-                existingItem
-            );
-        }         
+        beforeDelete: async ({ existingItem, context }) => {
+            await code.updateHoaDonWithItemKetSo(context, { hoadons: [] }, existingItem);
+        }
     }
 };

@@ -43,6 +43,8 @@ module.exports = {
             type: Select,
             options: [
                 { value: 'AUTO_ACB', label: 'Tự động từ ACB' },
+                { value: 'SCHOOL_TRANSFER', label: 'Trường chuyển cấn trừ' },
+                { value: 'PARENT_TRANSFER', label: 'Phụ huynh chuyển cấn trừ' },
                 { value: 'MANUAL_ACCOUNTANT', label: 'Kế toán gạch nợ' },
                 { value: 'WALLET_DEDUCT', label: 'Trừ số dư ví' }
             ],
