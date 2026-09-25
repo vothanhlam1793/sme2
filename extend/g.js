@@ -524,12 +524,13 @@ function extend(keystone) {
       {
         schema: 'createStudentFromFull(nameStudent: String, birthday: String, nameDad: String, phoneDad: String, nameMom: String, phoneMom: String): CStudent',
         resolver: async function (_, { nameStudent, birthday, nameDad, phoneDad, nameMom, phoneMom }) {
-          // console.log(nameStudent, nameMom, nameDad, birthday, phoneDad, phoneMom);
-          if ((phoneDad.length == 10) || (phoneMom.length == 10)) {
-            // Có 1 trong 2 số điện thoại hợp lệ
+          nameStudent = (nameStudent || '').trim();
+          nameDad = (nameDad || '').trim();
+          nameMom = (nameMom || '').trim();
+          phoneDad = (phoneDad || '').replace(/\D/g, '');
+          phoneMom = (phoneMom || '').replace(/\D/g, '');
 
-          } else {
-            // Cả 2 số điện thoại không hợp lệ
+          if (phoneDad.length < 9 && phoneMom.length < 9) {
             return {
               message: "ERROR_NUMBER_LENGTH",
               content: "Ca 2 so dien thoai khong hop le",
@@ -539,22 +540,25 @@ function extend(keystone) {
               }
             }
           }
+
+          var wherePhones = [];
+          if (phoneDad.length >= 9) wherePhones.push(`{ number: "${phoneDad}" }`);
+          if (phoneMom.length >= 9) wherePhones.push(`{ number: "${phoneMom}" }`);
+
           var { data, errors } = await keystone.executeGraphQL({
             query: gql`
                     query {
                         allPhones (where: { OR: [
-                          {
-                            number: "${phoneDad}"
-                          },
-                          {
-                            number: "${phoneMom}"
-                          }
+                          ${wherePhones.join(',')}
                         ]
                         }){
                           id
+                          number
+                          name
                           parent {
                             id
                             name
+                            parents
                             phone {id number name}
                           }
                         }
@@ -563,41 +567,53 @@ function extend(keystone) {
           });
           
           var parents = [];
-          data.allPhones.forEach(async function (phone) {
-            
-            if (phone.parent != null) {
-              parents = parents.concat(phone.parent);
-            } else {
-              // delete phone du thua
-              await keystone.executeGraphQL({
-                query: gql`
-                mutation {
-                  deletePhone(id: "${phone.id}"){
-                    id
+          if (data && data.allPhones) {
+            data.allPhones.forEach(async function (phone) {
+              if (phone.parent != null) {
+                parents = parents.concat(phone.parent);
+              } else {
+                // delete phone du thua
+                await keystone.executeGraphQL({
+                  query: gql`
+                  mutation {
+                    deletePhone(id: "${phone.id}"){
+                      id
+                    }
                   }
-                }
-                `
-              })
-            }
-          });
+                  `
+                })
+              }
+            });
+          }
           let ret = parents.filter((value, index, self) => {
             return self.findIndex((t) => t.id === value.id) === index;
           });
+
+          // Chuẩn hóa tên phụ huynh đại diện
+          var parentRepName = "";
+          if (nameDad && nameDad.length > 0) {
+            parentRepName = `${nameDad} (Bố ${nameStudent})`;
+          } else if (nameMom && nameMom.length > 0) {
+            parentRepName = `${nameMom} (Mẹ ${nameStudent})`;
+          } else {
+            parentRepName = `PH ${nameStudent}`;
+          }
+
+          var parentInfo = JSON.stringify({ dadName: nameDad, dadPhone: phoneDad, momName: nameMom, momPhone: phoneMom });
+
           if (ret.length == 0) {
             // Tạo mới - với 2 số điện thoại
-            // Tạo mới số điện thoại bố
             var idPhoneDad;
             var idPhoneMom;
-            if (phoneDad.length == 10) {
-              var dad = await createPhone(keystone, nameDad, phoneDad);
-              idPhoneDad = dad.id;
+            if (phoneDad.length >= 9) {
+              var dad = await createPhone(keystone, nameDad ? `${nameDad} (Bố)` : "Bố", phoneDad);
+              if (dad) idPhoneDad = dad.id;
             };
-            if (phoneMom.length == 10) {
-              var mom = await createPhone(keystone, nameMom, phoneMom);
-              idPhoneMom = mom.id;
+            if (phoneMom.length >= 9) {
+              var mom = await createPhone(keystone, nameMom ? `${nameMom} (Mẹ)` : "Mẹ", phoneMom);
+              if (mom) idPhoneMom = mom.id;
             }
-            var parentInfo = JSON.stringify({ dadName: nameDad, dadPhone: phoneDad, momName: nameMom, momPhone: phoneMom });
-            var parent = await createParent(keystone, nameStudent, parentInfo, [idPhoneDad, idPhoneMom]);
+            var parent = await createParent(keystone, parentRepName, parentInfo, [idPhoneDad, idPhoneMom]);
             var student = await createStudent(keystone, nameStudent, birthday, parent.id);
             return {
               message: "SUCCESS",
@@ -609,18 +625,51 @@ function extend(keystone) {
             }
 
           } else if (ret.length == 1) {
-            // ret.length == 1 => Tạo luôn phụ huynh
-            var student = await createStudent(keystone, nameStudent, birthday, ret[0].id);
+            // ret.length == 1 => Phụ huynh đã có sẵn trong hệ thống (anh/chị của bé)
+            var existingParent = ret[0];
+            var existingPhoneNumbers = (existingParent.phone || []).map(p => p.number);
+            
+            // Nếu có SĐT mới chưa được thêm vào phụ huynh này, bổ sung ngay
+            if (phoneDad.length >= 9 && !existingPhoneNumbers.includes(phoneDad)) {
+              var dad = await createPhone(keystone, nameDad ? `${nameDad} (Bố)` : "Bố", phoneDad);
+              if (dad) {
+                await keystone.executeGraphQL({
+                  query: gql`
+                    mutation {
+                      updateParent(id: "${existingParent.id}", data: {
+                        phone: { connect: [{ id: "${dad.id}" }] }
+                      }) { id }
+                    }
+                  `
+                });
+              }
+            }
+            if (phoneMom.length >= 9 && !existingPhoneNumbers.includes(phoneMom)) {
+              var mom = await createPhone(keystone, nameMom ? `${nameMom} (Mẹ)` : "Mẹ", phoneMom);
+              if (mom) {
+                await keystone.executeGraphQL({
+                  query: gql`
+                    mutation {
+                      updateParent(id: "${existingParent.id}", data: {
+                        phone: { connect: [{ id: "${mom.id}" }] }
+                      }) { id }
+                    }
+                  `
+                });
+              }
+            }
+
+            var student = await createStudent(keystone, nameStudent, birthday, existingParent.id);
             return {
               message: "SUCCESS",
               content: "",
               data: {
                 student: student,
-                parent: ret[0]
+                parent: existingParent
               }
             }
           } else {
-            // Có lỗi - nhiều hơn 1 phụ huynh được tạo
+            // Có lỗi - nhiều hơn 1 phụ huynh được tìm thấy
             return {
               message: "ERROR_2_PARENT",
               content: "Co 2 phu huynh",
