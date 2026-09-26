@@ -5,6 +5,46 @@ const { gql } = require('apollo-server-express');
  */
 class SettlementService {
     /**
+     * Ghi nhận vết biến động nợ vào bảng Log truyền thống để bảo toàn chuỗi lịch sử lũy tiến
+     */
+    static async writeDebtLog(context, { parentId, change, newDebt, itemS = 'PaymentSettlement', idItemS = '', type = null }) {
+        try {
+            const chgNum = Math.abs(parseInt(change, 10));
+            if (isNaN(chgNum) || chgNum === 0) return;
+            const logType = type || (change > 0 ? 'UP' : 'DOWN');
+
+            const createLogMutation = gql`
+                mutation CreateDebtLog($data: LogCreateInput!) {
+                    createLog(data: $data) {
+                        id
+                    }
+                }
+            `;
+
+            await context.executeGraphQL({
+                context,
+                query: createLogMutation,
+                variables: {
+                    data: {
+                        item: 'Parent',
+                        idItem: parentId,
+                        key: 'debt',
+                        value: String(newDebt),
+                        createdAt: (new Date()).toISOString(),
+                        createdTime: parseInt((new Date()).getTime() / 1000, 10),
+                        type: logType,
+                        valueChange: String(chgNum),
+                        itemS,
+                        idItemS: idItemS || ''
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn('[SettlementService] writeDebtLog warning:', e.message);
+        }
+    }
+
+    /**
      * Thu tiền (Tiền mặt / Chuyển khoản ACB / MONA Pay) -> Tăng balance -> Tùy chọn chạy Settlement gạch nợ nếu autoSettle = true
      * @param {Object} context - KeystoneJS context
      * @param {Object} params - { parentId, amount, paymentMethod, bankRef, bankDescription, settleType, userId, note, autoSettle }
@@ -173,6 +213,17 @@ class SettlementService {
                 debt: Math.max(0, currentDebt)
             }
         });
+
+        if (totalSettled > 0) {
+            await SettlementService.writeDebtLog(context, {
+                parentId,
+                change: -totalSettled,
+                newDebt: Math.max(0, currentDebt),
+                itemS: paymentMethod === 'CASH' ? 'PhieuThu' : 'PaymentSettlement',
+                idItemS: settlements[0]?.id || cashTx.id,
+                type: 'DOWN'
+            });
+        }
 
         // 5. Cập nhật trạng thái của CashTransaction: ALLOCATED vì đã gán thành công vào ví phụ huynh
         const updateCashTxRes = await context.executeGraphQL({
@@ -434,6 +485,16 @@ class SettlementService {
             }
         });
 
+        // Ghi nhận Log nợ giảm
+        await SettlementService.writeDebtLog(context, {
+            parentId,
+            change: -settleAmount,
+            newDebt: Math.max(0, newDebt),
+            itemS: 'PaymentSettlement',
+            idItemS: settleRes.data?.createPaymentSettlement?.id || '',
+            type: 'DOWN'
+        });
+
         return {
             success: true,
             settlement: settleRes.data.createPaymentSettlement,
@@ -518,6 +579,27 @@ class SettlementService {
                 debt: Math.max(0, currentDebt)
             }
         });
+
+        // Ghi nhận 1: Log phát sinh hóa đơn/học phí tháng (Tăng nợ)
+        await SettlementService.writeDebtLog(context, {
+            parentId,
+            change: numAmount,
+            newDebt: (parent.debt || 0) + numAmount,
+            itemS: itemType,
+            idItemS: itemId || '',
+            type: 'UP'
+        });
+
+        // Ghi nhận 2: Nếu có tự động cấn trừ ngay từ ví (Giảm nợ)
+        if (settledAmount > 0) {
+            await SettlementService.writeDebtLog(context, {
+                parentId,
+                change: -settledAmount,
+                newDebt: Math.max(0, currentDebt),
+                itemS: 'PaymentSettlement',
+                type: 'DOWN'
+            });
+        }
     }
 
     /**
@@ -651,6 +733,17 @@ class SettlementService {
                 debt: Math.max(0, currentDebt)
             }
         });
+
+        if (totalSettled > 0) {
+            await SettlementService.writeDebtLog(context, {
+                parentId,
+                change: -totalSettled,
+                newDebt: Math.max(0, currentDebt),
+                itemS: 'PaymentSettlement',
+                idItemS: settlements[0]?.id || '',
+                type: 'DOWN'
+            });
+        }
 
         // 5. Cập nhật CashTransaction: luôn là ALLOCATED khi đã gán vào ví phụ huynh
         const updateAllocatedRes = await context.executeGraphQL({
