@@ -45,13 +45,11 @@ module.exports = {
         status: {
             type: Select,
             options: [
-                { value: 'PENDING', label: 'Chờ xử lý' },
-                { value: 'SETTLED', label: 'Đã gạch nợ' },
-                { value: 'PARTIALLY_SETTLED', label: 'Gạch nợ một phần' },
-                { value: 'UNALLOCATED', label: 'Chưa gán Phụ huynh' },
+                { value: 'UNALLOCATED', label: 'Chưa gán' },
+                { value: 'ALLOCATED', label: 'Đã vào ví' },
                 { value: 'CANCELLED', label: 'Đã hủy' }
             ],
-            defaultValue: 'PENDING'
+            defaultValue: 'UNALLOCATED'
         },
         settlements: {
             type: Relationship,

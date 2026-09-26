@@ -174,12 +174,8 @@ class SettlementService {
             }
         });
 
-        // 5. Cập nhật trạng thái của CashTransaction
-        const finalStatus = totalSettled >= numAmount
-            ? 'SETTLED'
-            : totalSettled > 0
-                ? 'PARTIALLY_SETTLED'
-                : 'PENDING';
+        // 5. Cập nhật trạng thái của CashTransaction: ALLOCATED vì đã gán thành công vào ví phụ huynh
+        const finalStatus = 'ALLOCATED';
 
         await context.executeGraphQL({
             context,
@@ -651,27 +647,21 @@ class SettlementService {
             }
         });
 
-        // 5. Cập nhật CashTransaction (connect parent, status)
-        const finalStatus = totalSettled >= numAmount
-            ? 'SETTLED'
-            : totalSettled > 0
-                ? 'PARTIALLY_SETTLED'
-                : 'PENDING';
-
+        // 5. Cập nhật CashTransaction: luôn là ALLOCATED khi đã gán vào ví phụ huynh
         await context.executeGraphQL({
             context,
             query: gql`
-                mutation UpdateCashTxAllocated($id: ID!, $parentId: ID!, $status: String!) {
+                mutation UpdateCashTxAllocated($id: ID!, $parentId: ID!) {
                     updateCashTransaction(id: $id, data: {
                         parent: { connect: { id: $parentId } },
-                        status: $status
+                        status: "ALLOCATED"
                     }) {
                         id
                         status
                     }
                 }
             `,
-            variables: { id: cashTxId, parentId, status: finalStatus }
+            variables: { id: cashTxId, parentId }
         });
 
         // Bắn sự kiện realtime WebSocket tới App Phụ Huynh
