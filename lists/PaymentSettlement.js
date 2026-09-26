@@ -1,5 +1,7 @@
 const { Text, Select, Integer, Relationship, DateTime } = require('@keystonejs/fields');
+const { gql } = require('apollo-server-express');
 const code = require('../func/code');
+const SettlementService = require('../func/settlement');
 
 module.exports = {
     fields: {
@@ -88,6 +90,65 @@ module.exports = {
                 resolvedData.settledBy = user.id;
             }
             return resolvedData;
+        },
+        afterChange: async ({ operation, updatedItem, existingItem, context }) => {
+            if (operation === 'create' && updatedItem.parent && updatedItem.amount && updatedItem.status === 'SUCCESS') {
+                try {
+                    const parentRes = await context.executeGraphQL({
+                        context,
+                        query: gql`
+                            query GetParent($id: ID!) {
+                                Parent(where: { id: $id }) {
+                                    id
+                                    debt
+                                    balance
+                                }
+                            }
+                        `,
+                        variables: { id: updatedItem.parent }
+                    });
+
+                    const parent = parentRes.data?.Parent;
+                    if (parent) {
+                        const curDebt = parent.debt || 0;
+                        const curBal = parent.balance || 0;
+                        const settleAmount = parseInt(updatedItem.amount, 10) || 0;
+
+                        const newDebt = Math.max(0, curDebt - settleAmount);
+                        const newBal = Math.max(0, curBal - settleAmount);
+
+                        await context.executeGraphQL({
+                            context,
+                            query: gql`
+                                mutation UpdateParentFinances($id: ID!, $debt: Int!, $balance: Int!) {
+                                    updateParent(id: $id, data: { debt: $debt, balance: $balance }) {
+                                        id
+                                        debt
+                                        balance
+                                    }
+                                }
+                            `,
+                            variables: {
+                                id: parent.id,
+                                debt: newDebt,
+                                balance: newBal
+                            }
+                        });
+
+                        // Ghi vết audit log nhẹ để quản trị đối soát khi cần
+                        await SettlementService.writeDebtLog(context, {
+                            parentId: parent.id,
+                            change: -settleAmount,
+                            newDebt,
+                            itemS: 'PaymentSettlement',
+                            idItemS: updatedItem.id,
+                            type: 'DOWN'
+                        });
+                    }
+                } catch (e) {
+                    console.warn('[PaymentSettlement hook afterChange error]:', e.message);
+                }
+            }
         }
     }
 };
