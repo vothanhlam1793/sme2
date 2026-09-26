@@ -5,9 +5,9 @@ const { gql } = require('apollo-server-express');
  */
 class SettlementService {
     /**
-     * Thu tiền (Tiền mặt / Chuyển khoản ACB) -> Tăng balance -> Tự động chạy Settlement gạch nợ nếu đang có debt
+     * Thu tiền (Tiền mặt / Chuyển khoản ACB / MONA Pay) -> Tăng balance -> Tùy chọn chạy Settlement gạch nợ nếu autoSettle = true
      * @param {Object} context - KeystoneJS context
-     * @param {Object} params - { parentId, amount, paymentMethod, bankRef, bankDescription, settleType, userId, note }
+     * @param {Object} params - { parentId, amount, paymentMethod, bankRef, bankDescription, settleType, userId, note, autoSettle }
      */
     static async processInflowAndSettle(context, params) {
         const {
@@ -18,7 +18,8 @@ class SettlementService {
             bankDescription = '',
             settleType = 'SCHOOL_TRANSFER',
             userId = null,
-            note = ''
+            note = '',
+            autoSettle = true
         } = params;
 
         const numAmount = parseInt(amount, 10);
@@ -116,8 +117,8 @@ class SettlementService {
         let totalSettled = 0;
         const settlements = [];
 
-        // 3. Nếu có nợ (debt > 0), tự động trích từ balance sang cấn trừ
-        if (currentDebt > 0 && currentBalance > 0) {
+        // 3. Nếu bật autoSettle và có nợ (debt > 0), tự động trích từ balance sang cấn trừ
+        if (autoSettle && currentDebt > 0 && currentBalance > 0) {
             const settleAmount = Math.min(currentBalance, currentDebt);
 
             const createSettlementQuery = gql`
@@ -192,6 +193,23 @@ class SettlementService {
             `,
             variables: { id: cashTx.id, status: finalStatus }
         });
+
+        // Bắn sự kiện realtime WebSocket tới App Phụ Huynh
+        try {
+            const wsHub = require('../routes/wsHub');
+            wsHub.sendToParent(parentId, 'PAYMENT_RECEIVED', {
+                transactionCode: cashTx.code,
+                amount: numAmount,
+                paymentMethod,
+                description: cashTxData.bankDescription,
+                settledAmount: totalSettled,
+                remainingDebt: Math.max(0, currentDebt),
+                remainingBalance: Math.max(0, currentBalance),
+                receivedAt: new Date().toISOString()
+            });
+        } catch (e) {
+            console.warn('[WS Hub Broadcast Warning]:', e.message);
+        }
 
         return {
             success: true,
@@ -499,6 +517,189 @@ class SettlementService {
                 debt: Math.max(0, currentDebt)
             }
         });
+    }
+
+    /**
+     * Gán dòng tiền chưa nhận diện (UNALLOCATED) cho một Phụ huynh & tự động cấn trừ nếu có nợ
+     * @param {Object} context - KeystoneJS context
+     * @param {Object} params - { cashTxId, parentId, autoSettle, userId, note }
+     */
+    static async allocateCashTransaction(context, params) {
+        const {
+            cashTxId,
+            parentId,
+            autoSettle = true,
+            userId = null,
+            note = ''
+        } = params;
+
+        if (!cashTxId || !parentId) {
+            throw new Error('Thiếu ID dòng tiền hoặc ID phụ huynh');
+        }
+
+        // 1. Lấy thông tin CashTransaction
+        const txRes = await context.executeGraphQL({
+            context,
+            query: gql`
+                query GetCashTx($id: ID!) {
+                    CashTransaction(where: { id: $id }) {
+                        id
+                        code
+                        amount
+                        type
+                        status
+                        parent {
+                            id
+                        }
+                    }
+                }
+            `,
+            variables: { id: cashTxId }
+        });
+
+        const tx = txRes.data?.CashTransaction;
+        if (!tx) {
+            throw new Error('Không tìm thấy giao dịch dòng tiền ID: ' + cashTxId);
+        }
+
+        const numAmount = tx.amount || 0;
+        if (numAmount <= 0) {
+            throw new Error('Số tiền của giao dịch không hợp lệ');
+        }
+
+        // 2. Lấy thông tin Phụ huynh
+        const parentRes = await context.executeGraphQL({
+            context,
+            query: gql`
+                query GetParentDetails($id: ID!) {
+                    Parent(where: { id: $id }) {
+                        id
+                        code
+                        name
+                        debt
+                        balance
+                    }
+                }
+            `,
+            variables: { id: parentId }
+        });
+
+        const parent = parentRes.data?.Parent;
+        if (!parent) {
+            throw new Error(`Không tìm thấy phụ huynh ID: ${parentId}`);
+        }
+
+        let currentBalance = (parent.balance || 0) + numAmount;
+        let currentDebt = Math.max(0, parent.debt || 0);
+        let totalSettled = 0;
+        const settlements = [];
+
+        // 3. Nếu bật autoSettle và đang có nợ (debt > 0), tự động trích gạch nợ
+        if (autoSettle && currentDebt > 0 && currentBalance > 0) {
+            const settleAmount = Math.min(currentBalance, currentDebt);
+
+            const createSettlementQuery = gql`
+                mutation CreateSettlement($data: PaymentSettlementCreateInput!) {
+                    createPaymentSettlement(data: $data) {
+                        id
+                        code
+                        amount
+                        settledAt
+                    }
+                }
+            `;
+
+            const settleRes = await context.executeGraphQL({
+                context,
+                query: createSettlementQuery,
+                variables: {
+                    data: {
+                        cashTransaction: { connect: { id: cashTxId } },
+                        parent: { connect: { id: parentId } },
+                        amount: settleAmount,
+                        settleType: 'MANUAL_ACCOUNTANT',
+                        status: 'SUCCESS',
+                        note: note || 'Kế toán gán dòng tiền và tự động cấn trừ học phí'
+                    }
+                }
+            });
+
+            if (settleRes.data?.createPaymentSettlement) {
+                settlements.push(settleRes.data.createPaymentSettlement);
+                currentBalance -= settleAmount;
+                currentDebt -= settleAmount;
+                totalSettled += settleAmount;
+            }
+        }
+
+        // 4. Cập nhật Parent balance & debt
+        await context.executeGraphQL({
+            context,
+            query: gql`
+                mutation UpdateParentBalanceAndDebt($id: ID!, $balance: Int!, $debt: Int!) {
+                    updateParent(id: $id, data: { balance: $balance, debt: $debt }) {
+                        id
+                        balance
+                        debt
+                    }
+                }
+            `,
+            variables: {
+                id: parentId,
+                balance: Math.max(0, currentBalance),
+                debt: Math.max(0, currentDebt)
+            }
+        });
+
+        // 5. Cập nhật CashTransaction (connect parent, status)
+        const finalStatus = totalSettled >= numAmount
+            ? 'SETTLED'
+            : totalSettled > 0
+                ? 'PARTIALLY_SETTLED'
+                : 'PENDING';
+
+        await context.executeGraphQL({
+            context,
+            query: gql`
+                mutation UpdateCashTxAllocated($id: ID!, $parentId: ID!, $status: String!) {
+                    updateCashTransaction(id: $id, data: {
+                        parent: { connect: { id: $parentId } },
+                        status: $status
+                    }) {
+                        id
+                        status
+                    }
+                }
+            `,
+            variables: { id: cashTxId, parentId, status: finalStatus }
+        });
+
+        // Bắn sự kiện realtime WebSocket tới App Phụ Huynh
+        try {
+            const wsHub = require('../routes/wsHub');
+            wsHub.sendToParent(parentId, 'PAYMENT_RECEIVED', {
+                transactionCode: tx.code,
+                amount: numAmount,
+                paymentMethod: tx.paymentMethod || 'MANUAL_ALLOCATION',
+                description: 'Dòng tiền đã được gán vào hồ sơ bé',
+                settledAmount: totalSettled,
+                remainingDebt: Math.max(0, currentDebt),
+                remainingBalance: Math.max(0, currentBalance),
+                receivedAt: new Date().toISOString()
+            });
+        } catch (e) {
+            console.warn('[WS Hub Broadcast Warning]:', e.message);
+        }
+
+        return {
+            success: true,
+            cashTransactionId: cashTxId,
+            parentId,
+            settledAmount: totalSettled,
+            remainingBalance: Math.max(0, currentBalance),
+            remainingDebt: Math.max(0, currentDebt),
+            settlements
+        };
     }
 }
 

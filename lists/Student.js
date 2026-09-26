@@ -61,6 +61,16 @@ module.exports = {
     },
     hooks: {
         validateInput: async ({operation, resolvedData, existingItem, context, originalInput}) => {
+            if (resolvedData.name !== undefined && typeof resolvedData.name === 'string') {
+                resolvedData.name = resolvedData.name.trim().replace(/\s+/g, ' ');
+            }
+            if (resolvedData.sName !== undefined && typeof resolvedData.sName === 'string') {
+                resolvedData.sName = resolvedData.sName.trim().replace(/\s+/g, ' ');
+            }
+            if (resolvedData.luuy !== undefined && typeof resolvedData.luuy === 'string') {
+                resolvedData.luuy = resolvedData.luuy.trim();
+            }
+
             if(operation == "create"){
                 if(resolvedData.status == undefined){
                     resolvedData.status = "DANG_KY"

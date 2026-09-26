@@ -51,6 +51,13 @@ module.exports = {
     },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
+            if (resolvedData.name !== undefined && typeof resolvedData.name === 'string') {
+                resolvedData.name = resolvedData.name.trim().replace(/\s+/g, ' ');
+            }
+            if (resolvedData.parents !== undefined && typeof resolvedData.parents === 'string') {
+                resolvedData.parents = resolvedData.parents.trim();
+            }
+
             if(operation == "create"){
                 if(resolvedData.code == undefined){
                     resolvedData.code = await code.getCode(context, "PH");

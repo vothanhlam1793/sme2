@@ -24,6 +24,7 @@ module.exports = {
             type: Select,
             options: [
                 { value: 'ACB_BANK', label: 'Chuyển khoản ACB' },
+                { value: 'MONA_PAY', label: 'Cổng MONA Pay' },
                 { value: 'CASH', label: 'Tiền mặt' },
                 { value: 'OTHER', label: 'Khác' }
             ],

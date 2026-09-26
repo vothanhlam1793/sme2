@@ -331,6 +331,85 @@ function createParentPortalRouter(keystone) {
         }
     });
 
+    /**
+     * API 3: Quản lý Cấu hình Portal API Key (Dành cho Super Admin)
+     * GET /api/portal/config
+     */
+    router.get('/config', async (req, res) => {
+        try {
+            const context = keystone.createContext({ schema: keystone.schema, isAccessAllowed: true });
+            const wsHub = require('./wsHub');
+            const config = await wsHub.getPortalConfig(context);
+            const stats = wsHub.getStats();
+
+            return res.json({
+                success: true,
+                data: {
+                    ...config,
+                    ws_url: `wss://${req.get('host')}/ws/parent`,
+                    active_connections: stats.totalConnections,
+                    active_parents: stats.activeParents
+                }
+            });
+        } catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    /**
+     * API 4: Cập nhật Cấu hình Portal API Key (Dành cho Super Admin)
+     * POST /api/portal/config
+     */
+    router.post('/config', async (req, res) => {
+        try {
+            const newConfig = req.body;
+            const context = keystone.createContext({ schema: keystone.schema, isAccessAllowed: true });
+
+            const { data: existing } = await context.executeGraphQL({
+                context,
+                query: gql`
+                    query {
+                        allSystemSettings(where: { key: "PORTAL_GATEWAY_CONFIG" }) {
+                            id
+                        }
+                    }
+                `
+            });
+
+            const jsonStr = JSON.stringify(newConfig);
+
+            if (existing?.allSystemSettings?.length > 0) {
+                await context.executeGraphQL({
+                    context,
+                    query: gql`
+                        mutation ($id: ID!, $value: String!) {
+                            updateSystemSetting(id: $id, data: { value: $value }) {
+                                id
+                            }
+                        }
+                    `,
+                    variables: { id: existing.allSystemSettings[0].id, value: jsonStr }
+                });
+            } else {
+                await context.executeGraphQL({
+                    context,
+                    query: gql`
+                        mutation ($key: String!, $value: String!) {
+                            createSystemSetting(data: { key: $key, value: $value, isSecret: true, description: "Cấu hình cổng kết nối App Phụ Huynh camerangochoang.com" }) {
+                                id
+                            }
+                        }
+                    `,
+                    variables: { key: 'PORTAL_GATEWAY_CONFIG', value: jsonStr }
+                });
+            }
+
+            return res.json({ success: true, message: 'Đã lưu cấu hình Cổng Phụ Huynh thành công' });
+        } catch (err) {
+            return res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
     return router;
 }
 

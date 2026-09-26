@@ -63,6 +63,7 @@ keystone.createList('Log', require("./lists/Log"));
 keystone.createList('CashTransaction', require("./lists/CashTransaction"));
 keystone.createList('PaymentSettlement', require("./lists/PaymentSettlement"));
 keystone.createList('Notification', require("./lists/Notification"));
+keystone.createList('SystemSetting', require("./lists/SystemSetting"));
 
 require("./extend/g").extend(keystone);
 
@@ -78,12 +79,17 @@ const authStrategy = keystone.createAuthStrategy({
 });
 
 const createParentPortalRouter = require('./routes/parentPortal');
+const createPaymentHubRouter = require('./routes/paymentHub');
+const wsHub = require('./routes/wsHub');
 
 module.exports = {
   keystone,
-  configureExpress: app => {
+  configureExpress: (app, server) => {
     app.set('trust proxy', 1);
     app.use('/api/portal', createParentPortalRouter(keystone));
+    app.use('/api/payment-hub', createPaymentHubRouter(keystone));
+    // Khởi động WebSocket Realtime Hub
+    wsHub.startServer(keystone);
   },
   apps: [
     new GraphQLApp(),
