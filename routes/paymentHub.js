@@ -131,6 +131,50 @@ function createPaymentHubRouter(keystone) {
   });
 
   /**
+   * Helper: Lấy access token qua OAuth2 Client Credentials
+   */
+  async function getMonaAccessToken(clientId, clientSecret) {
+    if (!clientId || !clientSecret) return null;
+    const https = require('https');
+    return new Promise((resolve) => {
+      const payload = JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret
+      });
+      const req = https.request('https://api.monapay.vn/api/v1/oauth/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        }
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (res.statusCode === 200 && parsed?.data?.access_token) {
+              resolve(parsed.data.access_token);
+            } else {
+              console.warn('[MonaPay OAuth Error]:', data);
+              resolve(null);
+            }
+          } catch (e) {
+            resolve(null);
+          }
+        });
+      });
+      req.on('error', (e) => {
+        console.error('[MonaPay OAuth Request Error]:', e.message);
+        resolve(null);
+      });
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  /**
    * Helper: Đồng bộ danh sách giao dịch từ MONA Pay API và tự động đối soát
    */
   async function syncTransactionsFromMonaPay(context) {
@@ -139,16 +183,23 @@ function createPaymentHubRouter(keystone) {
       return { success: false, message: 'MONA Pay Hub đang tắt' };
     }
 
-    const apiToken = config.api_token || '';
+    let apiToken = config.api_token || '';
+    // Nếu có client_id & client_secret thì luôn ưu tiên lấy token OAuth mới nhất
+    if (config.client_id && config.client_secret) {
+      const oauthToken = await getMonaAccessToken(config.client_id, config.client_secret);
+      if (oauthToken) {
+        apiToken = oauthToken;
+      }
+    }
+
     if (!apiToken) {
-      return { success: false, message: 'Chưa cấu hình API Token MONA Pay' };
+      return { success: false, message: 'Chưa cấu hình API Token hoặc Client ID / Secret MONA Pay' };
     }
 
     const https = require('https');
-    const fetchTransactions = () => {
+    const fetchApi = (path) => {
       return new Promise((resolve) => {
-        // Gọi API lấy checkouts hoặc VA transactions
-        const req = https.request('https://api.monapay.vn/api/v1/checkouts?limit=50', {
+        const req = https.request(`https://api.monapay.vn${path}`, {
           method: 'GET',
           headers: {
             'Accept': 'application/json',
@@ -171,40 +222,65 @@ function createPaymentHubRouter(keystone) {
       });
     };
 
-    const res = await fetchTransactions();
+    // 1. Quét Webhook logs (chứa các giao dịch thực tế từ ACB webhook)
+    const webhookLogsRes = await fetchApi('/api/v1/webhook-logs?limit=50');
+    // 2. Quét Checkouts (nếu có dùng checkout page)
+    const checkoutsRes = await fetchApi('/api/v1/checkouts?limit=50');
+
     const nowIso = new Date().toISOString();
 
-    if (res.statusCode === 401) {
+    if (webhookLogsRes.statusCode === 401 && checkoutsRes.statusCode === 401) {
       const resultObj = {
         success: false,
         lastSync: nowIso,
-        error: 'API Token MONA Pay đã hết hạn hoặc không hợp lệ. Vui lòng cập nhật API Token trong Cài đặt.',
+        error: 'API Token / Khóa MONA Pay không hợp lệ hoặc đã hết hạn.',
         syncedCount: 0
       };
       await updateSyncStatus(context, resultObj);
       return resultObj;
     }
 
-    if (res.statusCode !== 200 || !res.body?.data) {
-      const resultObj = {
-        success: false,
-        lastSync: nowIso,
-        error: res.body?.message || res.error || `Lỗi kết nối MONA Pay (HTTP ${res.statusCode})`,
-        syncedCount: 0
-      };
-      await updateSyncStatus(context, resultObj);
-      return resultObj;
+    const candidateTransactions = [];
+
+    // Trích xuất từ webhook logs
+    if (webhookLogsRes.statusCode === 200 && webhookLogsRes.body?.data?.items) {
+      for (const logItem of webhookLogsRes.body.data.items) {
+        const payload = logItem.request_payload;
+        if (payload && (payload.amount > 0) && (payload.transaction_code || logItem.id)) {
+          candidateTransactions.push({
+            bankRef: String(payload.transaction_code || logItem.id),
+            amount: parseInt(payload.amount, 10),
+            description: payload.description || '',
+            bankName: payload.bank_name || 'ACB',
+            accountNumber: payload.account_number || ''
+          });
+        }
+      }
     }
 
-    const items = res.body.data.items || [];
+    // Trích xuất từ checkouts
+    if (checkoutsRes.statusCode === 200 && checkoutsRes.body?.data?.items) {
+      for (const chk of checkoutsRes.body.data.items) {
+        if (chk.status === 'paid' || chk.type === 'IN') {
+          const bankRef = chk.id || chk.transaction_code || chk.order_code;
+          if (bankRef) {
+            candidateTransactions.push({
+              bankRef: String(bankRef),
+              amount: parseInt(chk.amount, 10),
+              description: chk.description || chk.order_code || '',
+              bankName: 'ACB',
+              accountNumber: ''
+            });
+          }
+        }
+      }
+    }
+
     let newProcessed = 0;
 
-    for (const item of items) {
-      // Chỉ xử lý các giao dịch trạng thái đã thanh toán hoặc có tiền vào
-      if (item.status !== 'paid' && item.type !== 'IN') continue;
-
-      const bankRef = item.id || item.transaction_code || item.order_code;
-      if (!bankRef) continue;
+    for (const item of candidateTransactions) {
+      const bankRef = item.bankRef;
+      if (!bankRef || !item.amount) continue;
 
       // Kiểm tra xem đã xử lý giao dịch này chưa
       const { data: existingTx } = await context.executeGraphQL({
@@ -224,7 +300,7 @@ function createPaymentHubRouter(keystone) {
       }
 
       // Xử lý nạp tiền & cấn trừ
-      const rawDesc = item.description || item.order_code || '';
+      const rawDesc = item.description || '';
       const match = rawDesc.match(/PH\d{4,8}/i);
       let parentId = null;
 
@@ -244,14 +320,13 @@ function createPaymentHubRouter(keystone) {
         parentId = pRes.data?.allParents?.[0]?.id || null;
       }
 
-      const numAmount = parseInt(item.amount, 10);
-      if (numAmount > 0) {
+      if (item.amount > 0) {
         await SettlementService.processInflowAndSettle(context, {
           parentId,
-          amount: numAmount,
+          amount: item.amount,
           paymentMethod: 'MONA_PAY',
           bankRef: String(bankRef),
-          bankDescription: `[MONA_SYNC] ${rawDesc}`,
+          bankDescription: `[${item.bankName} - ${item.accountNumber}] ${rawDesc}`,
           settleType: 'AUTO_ACB',
           autoSettle: config.auto_settle !== false
         });
@@ -263,8 +338,8 @@ function createPaymentHubRouter(keystone) {
       success: true,
       lastSync: nowIso,
       syncedCount: newProcessed,
-      totalChecked: items.length,
-      message: `Đã kiểm tra ${items.length} giao dịch, phát hiện và đồng bộ mới ${newProcessed} giao dịch.`
+      totalChecked: candidateTransactions.length,
+      message: `Đã kiểm tra ${candidateTransactions.length} giao dịch, phát hiện và nạp tự động ${newProcessed} giao dịch mới.`
     };
 
     await updateSyncStatus(context, resultObj);
