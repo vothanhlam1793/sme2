@@ -175,19 +175,24 @@ class SettlementService {
         });
 
         // 5. Cập nhật trạng thái của CashTransaction: ALLOCATED vì đã gán thành công vào ví phụ huynh
-        const finalStatus = 'ALLOCATED';
-
-        await context.executeGraphQL({
+        const updateCashTxRes = await context.executeGraphQL({
             context,
             query: gql`
-                mutation UpdateCashTxStatus($id: ID!, $status: String!) {
-                    updateCashTransaction(id: $id, data: { status: $status }) {
+                mutation UpdateCashTxStatus($id: ID!) {
+                    updateCashTransaction(id: $id, data: { status: ALLOCATED }) {
                         id
+                        code
+                        amount
                         status
+                        parent {
+                            id
+                            code
+                            name
+                        }
                     }
                 }
             `,
-            variables: { id: cashTx.id, status: finalStatus }
+            variables: { id: cashTx.id }
         });
 
         // Bắn sự kiện realtime WebSocket tới App Phụ Huynh
@@ -648,21 +653,43 @@ class SettlementService {
         });
 
         // 5. Cập nhật CashTransaction: luôn là ALLOCATED khi đã gán vào ví phụ huynh
-        await context.executeGraphQL({
+        const updateAllocatedRes = await context.executeGraphQL({
             context,
             query: gql`
                 mutation UpdateCashTxAllocated($id: ID!, $parentId: ID!) {
                     updateCashTransaction(id: $id, data: {
                         parent: { connect: { id: $parentId } },
-                        status: "ALLOCATED"
+                        status: ALLOCATED
                     }) {
                         id
+                        code
+                        amount
+                        type
+                        paymentMethod
+                        bankRef
+                        bankDescription
                         status
+                        createdAt
+                        parent {
+                            id
+                            code
+                            name
+                        }
                     }
                 }
             `,
             variables: { id: cashTxId, parentId }
         });
+
+        const updatedTx = updateAllocatedRes.data?.updateCashTransaction || {
+            id: cashTxId,
+            status: 'ALLOCATED',
+            parent: {
+                id: parent.id,
+                code: parent.code,
+                name: parent.name
+            }
+        };
 
         // Bắn sự kiện realtime WebSocket tới App Phụ Huynh
         try {
@@ -684,6 +711,7 @@ class SettlementService {
         return {
             success: true,
             cashTransactionId: cashTxId,
+            cashTransaction: updatedTx,
             parentId,
             settledAmount: totalSettled,
             remainingBalance: Math.max(0, currentBalance),
