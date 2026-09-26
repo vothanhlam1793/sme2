@@ -66,9 +66,17 @@ function createParentPortalRouter(keystone) {
                                 id
                                 name
                                 status
+                                birthday
+                                luuy
+                                hocphigiam
                                 lophoc {
                                     id
                                     name
+                                    chunhiem {
+                                        id
+                                        name
+                                        phone
+                                    }
                                 }
                             }
                         }
@@ -94,9 +102,17 @@ function createParentPortalRouter(keystone) {
             const students = (parent.hocsinhs || []).map(s => ({
                 id: s.id,
                 name: s.name,
-                status: s.status,
+                birthday: s.birthday || null,
+                status: s.status || 'DANG_HOC',
+                note: s.luuy || '',
+                tuitionDiscount: s.hocphigiam || '0',
                 className: s.lophoc?.name || 'Chưa xếp lớp',
-                classId: s.lophoc?.id || null
+                classId: s.lophoc?.id || null,
+                teachers: (s.lophoc?.chunhiem || []).map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    phone: t.phone || ''
+                }))
             }));
 
             // Lấy danh sách ID các lớp của con để query thông báo phù hợp
