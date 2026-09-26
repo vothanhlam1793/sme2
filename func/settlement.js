@@ -85,7 +85,7 @@ class SettlementService {
             paymentMethod,
             bankRef,
             bankDescription: note || bankDescription || (paymentMethod === 'CASH' ? 'Thu tiền mặt tại quầy' : 'Chuyển khoản'),
-            status: 'PENDING'
+            status: parentId ? 'ALLOCATED' : 'UNALLOCATED'
         };
 
         if (parentId) {
@@ -267,7 +267,7 @@ class SettlementService {
             success: true,
             cashTransaction: {
                 ...cashTx,
-                status: finalStatus
+                status: updateCashTxRes?.data?.updateCashTransaction?.status || 'ALLOCATED'
             },
             settledAmount: totalSettled,
             remainingBalance: Math.max(0, currentBalance),
