@@ -92,7 +92,9 @@ module.exports = {
                         });
                     }
                 } catch (err) {
-                    console.error('Lỗi sau khi tạo PhieuThu trong SettlementService:', err);
+                    // The receipt already exists; propagate failure rather than acknowledge
+                    // successful accounting. Recovery still requires reconciliation.
+                    throw err;
                 }
             }
         }

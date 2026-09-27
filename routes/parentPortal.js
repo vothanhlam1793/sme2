@@ -2,6 +2,18 @@ const express = require('express');
 const { gql } = require('apollo-server-express');
 const SettlementService = require('../func/settlement');
 
+// GraphQL can resolve with errors (including partial data) instead of rejecting.
+// Check before treating an empty lookup as not found or attempting a write.
+function checkGraphQLResult(result, field) {
+    if (result?.errors?.length) {
+        throw new Error(`GraphQL operation failed: ${field}`);
+    }
+    if (result?.data?.[field] == null) {
+        throw new Error(`Missing GraphQL result: ${field}`);
+    }
+    return result.data;
+}
+
 function createParentPortalRouter(keystone) {
     const router = express.Router();
     router.use(express.json());
@@ -90,6 +102,7 @@ function createParentPortalRouter(keystone) {
                 variables: { number: cleanPhone }
             });
 
+            checkGraphQLResult(phoneRes, 'allPhones');
             const phoneRecord = phoneRes.data?.allPhones?.[0];
             if (!phoneRecord || !phoneRecord.parent) {
                 return res.status(404).json({
@@ -103,7 +116,7 @@ function createParentPortalRouter(keystone) {
                 id: s.id,
                 name: s.name,
                 birthday: s.birthday || null,
-                status: s.status || 'DANG_HOC',
+                status: s.status || null,
                 note: s.luuy || '',
                 tuitionDiscount: s.hocphigiam || '0',
                 className: s.lophoc?.name || 'Chưa xếp lớp',
@@ -141,6 +154,7 @@ function createParentPortalRouter(keystone) {
             `;
 
             const notifRes = await context.executeGraphQL({ context, query: notifQuery });
+            checkGraphQLResult(notifRes, 'allNotifications');
             const allNotifs = notifRes.data?.allNotifications || [];
 
             // Lọc thông báo toàn trường hoặc đúng lớp
@@ -189,6 +203,7 @@ function createParentPortalRouter(keystone) {
                 variables: { parentId: parent.id }
             });
 
+            checkGraphQLResult(invoicesRes, 'allHoaDons');
             const invoices = invoicesRes.data?.allHoaDons || [];
             const latestInvoice = invoices[0] || null;
 
@@ -216,6 +231,7 @@ function createParentPortalRouter(keystone) {
                 variables: { parentId: parent.id }
             });
 
+            checkGraphQLResult(settlementsRes, 'allPaymentSettlements');
             const paymentHistory = (settlementsRes.data?.allPaymentSettlements || []).map(st => ({
                 code: st.code,
                 amount: st.amount,
@@ -318,6 +334,7 @@ function createParentPortalRouter(keystone) {
                     variables: { code: parentCode }
                 });
 
+                checkGraphQLResult(pRes, 'allParents');
                 parentId = pRes.data?.allParents?.[0]?.id || null;
             }
 
@@ -381,7 +398,7 @@ function createParentPortalRouter(keystone) {
             const newConfig = req.body;
             const context = keystone.createContext({ schema: keystone.schema, isAccessAllowed: true });
 
-            const { data: existing } = await context.executeGraphQL({
+            const existingRes = await context.executeGraphQL({
                 context,
                 query: gql`
                     query {
@@ -392,10 +409,11 @@ function createParentPortalRouter(keystone) {
                 `
             });
 
+            const existing = checkGraphQLResult(existingRes, 'allSystemSettings');
             const jsonStr = JSON.stringify(newConfig);
 
             if (existing?.allSystemSettings?.length > 0) {
-                await context.executeGraphQL({
+                const updateRes = await context.executeGraphQL({
                     context,
                     query: gql`
                         mutation ($id: ID!, $value: String!) {
@@ -406,8 +424,9 @@ function createParentPortalRouter(keystone) {
                     `,
                     variables: { id: existing.allSystemSettings[0].id, value: jsonStr }
                 });
+                checkGraphQLResult(updateRes, 'updateSystemSetting');
             } else {
-                await context.executeGraphQL({
+                const createRes = await context.executeGraphQL({
                     context,
                     query: gql`
                         mutation ($key: String!, $value: String!) {
@@ -418,6 +437,7 @@ function createParentPortalRouter(keystone) {
                     `,
                     variables: { key: 'PORTAL_GATEWAY_CONFIG', value: jsonStr }
                 });
+                checkGraphQLResult(createRes, 'createSystemSetting');
             }
 
             return res.json({ success: true, message: 'Đã lưu cấu hình Cổng Phụ Huynh thành công' });

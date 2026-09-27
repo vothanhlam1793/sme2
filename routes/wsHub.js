@@ -157,15 +157,16 @@ class ParentWsHub {
    * Handle active connection
    */
   handleConnection(ws, parent) {
+    const roomId = String(parent.id);
     ws.parent = parent;
     ws.isAlive = true;
 
     this.allClients.add(ws);
 
-    if (!this.parentRooms.has(parent.id)) {
-      this.parentRooms.set(parent.id, new Set());
+    if (!this.parentRooms.has(roomId)) {
+      this.parentRooms.set(roomId, new Set());
     }
-    this.parentRooms.get(parent.id).add(ws);
+    this.parentRooms.get(roomId).add(ws);
 
     console.log(`[WS Hub] Phụ huynh kết nối: ${parent.name} (${parent.code}) | SĐT: ${parent.phone} | Active sockets: ${this.allClients.size}`);
 
@@ -201,10 +202,10 @@ class ParentWsHub {
 
     ws.on('close', () => {
       this.allClients.delete(ws);
-      if (this.parentRooms.has(parent.id)) {
-        this.parentRooms.get(parent.id).delete(ws);
-        if (this.parentRooms.get(parent.id).size === 0) {
-          this.parentRooms.delete(parent.id);
+      if (this.parentRooms.has(roomId)) {
+        this.parentRooms.get(roomId).delete(ws);
+        if (this.parentRooms.get(roomId).size === 0) {
+          this.parentRooms.delete(roomId);
         }
       }
       console.log(`[WS Hub] Phụ huynh ngắt kết nối: ${parent.code} | Active sockets: ${this.allClients.size}`);
@@ -218,14 +219,19 @@ class ParentWsHub {
   /**
    * Broadcast an event to a specific parent room
    */
-  sendToParent(parentId, type, data) {
+  eventPayload(type, data, metadata = {}) {
+    return JSON.stringify({
+      type, data, timestamp: new Date().toISOString(),
+      ...(metadata.eventId ? { eventId: metadata.eventId } : {}),
+      ...(metadata.processedAt ? { processedAt: metadata.processedAt } : {})
+    });
+  }
+
+  sendToParent(parentId, type, data, metadata = {}) {
+    parentId = String(parentId);
     if (!this.parentRooms.has(parentId)) return 0;
 
-    const payload = JSON.stringify({
-      type,
-      data,
-      timestamp: new Date().toISOString()
-    });
+    const payload = this.eventPayload(type, data, metadata);
 
     let count = 0;
     for (const ws of this.parentRooms.get(parentId)) {
@@ -235,6 +241,20 @@ class ParentWsHub {
       }
     }
     return count;
+  }
+
+  // Promise resolves after local ws send callbacks, NOT a client acknowledgement.
+  // Offline rooms/errors remain retryable. Never broadcasts parent financial data.
+  async sendOutboxEvent({ parentId, type, data, eventId, processedAt }) {
+    if (!parentId || !eventId || !processedAt) throw new Error('Missing outbox delivery metadata');
+    const sockets = [...(this.parentRooms.get(String(parentId)) || [])]
+      .filter(ws => ws.readyState === WebSocket.OPEN);
+    if (!sockets.length) throw new Error('Parent room has no open sockets');
+    const payload = this.eventPayload(type, data, { eventId, processedAt });
+    await Promise.all(sockets.map(ws => new Promise((resolve, reject) => {
+      ws.send(payload, error => error ? reject(error) : resolve());
+    })));
+    return sockets.length;
   }
 
   /**

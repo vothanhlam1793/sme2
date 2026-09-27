@@ -57,8 +57,6 @@ module.exports = {
     },
     hooks: {
         validateInput: async ({operation, resolvedData, context}) => {
-            console.log("VALIDATE");
-            resolvedData.note = "HERE";
             if(operation == "create"){
                 if(resolvedData.code){
                     var code = resolvedData.code.replace("VT_", "");

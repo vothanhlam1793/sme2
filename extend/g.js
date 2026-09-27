@@ -152,7 +152,7 @@ function connectID(ids) {
   return ret + `]`;
 }
 async function createDiemDanh(keystone, idLopHoc, co, khong, code, type, idGiaoVien, note) {
-  // Check va xoa
+  // Preserve the existing document when editing attendance.
   var r1 = await keystone.executeGraphQL({
     query: gql`
     query {
@@ -166,32 +166,47 @@ async function createDiemDanh(keystone, idLopHoc, co, khong, code, type, idGiaoV
         }
       }){
         id
+        co { id }
+        khong { id }
       }
     }
     `
   });
-  if (r1.data.allDiemDanhs.length > 0) {
-    keystone.executeGraphQL({
-      query: gql`
-      mutation {
-        deleteDiemDanh (id: "${r1.data.allDiemDanhs[0].id}"){
-          id
-        }
-    }
-      `
-    })
-  }
+  if (r1.errors || !r1.data || !r1.data.allDiemDanhs) return { errors: r1.errors || [{ message: 'Không đọc được phiếu điểm danh' }] };
+  if (r1.data.allDiemDanhs.length > 1) return { errors: [{ message: 'Có nhiều phiếu cùng lớp/ngày/loại; cần kiểm tra trước khi sửa' }] };
+  const existing = r1.data.allDiemDanhs[0];
   var idCos;
   var idKhongs;
   try {
     idCos = JSON.parse(co);
   } catch (e) {
-    idCos = [];
+    return { errors: [{ message: 'Danh sách có mặt không hợp lệ' }] };
   }
   try {
     idKhongs = JSON.parse(khong);
   } catch (e) {
-    idKhongs = [];
+    return { errors: [{ message: 'Danh sách vắng không hợp lệ' }] };
+  }
+  if (!Array.isArray(idCos) || !Array.isArray(idKhongs) || [...idCos, ...idKhongs].some(item => !item || typeof item.id !== 'string') || new Set([...idCos, ...idKhongs].map(item => item.id)).size !== idCos.length + idKhongs.length) {
+    return { errors: [{ message: 'Học sinh bị trùng hoặc danh sách không hợp lệ' }] };
+  }
+  if (existing) {
+    const data = {
+      giaovien: { connect: { id: idGiaoVien } },
+      co: { disconnect: existing.co.map(item => ({ id: item.id })), connect: idCos },
+      khong: { disconnect: existing.khong.map(item => ({ id: item.id })), connect: idKhongs }
+    };
+    if (note !== undefined && note !== null) data.note = note;
+    const updated = await keystone.executeGraphQL({
+      query: gql`mutation UpdateAttendance($id: ID!, $data: DiemDanhUpdateInput!) {
+        updateDiemDanh(id: $id, data: $data) {
+          id co { id name } khong { id name } lophoc { id name }
+          type note status code giaovien { id name }
+        }
+      }`,
+      variables: { id: existing.id, data }
+    });
+    return { ...updated, data: updated.data ? { createDiemDanh: updated.data.updateDiemDanh } : null };
   }
   var strCo = connectID(idCos);
   var strKhong = connectID(idKhongs);
@@ -216,7 +231,7 @@ async function createDiemDanh(keystone, idLopHoc, co, khong, code, type, idGiaoV
           }
         },
         code: "${code}",
-        note: "${note}",
+        note: ${JSON.stringify(note || '')},
         type: "${type}"
       }){
         id

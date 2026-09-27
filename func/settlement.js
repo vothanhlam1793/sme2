@@ -1,4 +1,6 @@
 const { gql } = require('apollo-server-express');
+const executeAccounting = require('./accountingGraphQL');
+const accountingMongo = require('./accountingMongo');
 
 /**
  * Settlement Engine: Xử lý dòng tiền, số dư ví và cấn trừ nợ (Balance & Debt Subledger)
@@ -8,6 +10,7 @@ class SettlementService {
      * Ghi nhận vết biến động nợ vào bảng Log truyền thống để bảo toàn chuỗi lịch sử lũy tiến
      */
     static async writeDebtLog(context, { parentId, change, newDebt, itemS = 'PaymentSettlement', idItemS = '', type = null }) {
+        accountingMongo.rejectUnsupported(context);
         try {
             const chgNum = Math.abs(parseInt(change, 10));
             if (isNaN(chgNum) || chgNum === 0) return;
@@ -21,7 +24,7 @@ class SettlementService {
                 }
             `;
 
-            await context.executeGraphQL({
+            await executeAccounting(context, {
                 context,
                 query: createLogMutation,
                 variables: {
@@ -40,7 +43,7 @@ class SettlementService {
                 }
             });
         } catch (e) {
-            console.warn('[SettlementService] writeDebtLog warning:', e.message);
+            throw e;
         }
     }
 
@@ -50,6 +53,8 @@ class SettlementService {
      * @param {Object} params - { parentId, amount, paymentMethod, bankRef, bankDescription, settleType, userId, note, autoSettle }
      */
     static async processInflowAndSettle(context, params) {
+        const repository = accountingMongo.repositoryFor(context);
+        if (repository) return repository.receive(params);
         const {
             parentId,
             amount,
@@ -95,24 +100,20 @@ class SettlementService {
             cashTxData.createdBy = { connect: { id: userId } };
         }
 
-        const cashTxRes = await context.executeGraphQL({
+        const cashTxRes = await executeAccounting(context, {
             context,
             query: createCashTxQuery,
             variables: { data: cashTxData }
         });
 
-        if (cashTxRes.errors || !cashTxRes.data?.createCashTransaction) {
-            throw new Error('Không thể tạo phiếu dòng tiền: ' + JSON.stringify(cashTxRes.errors));
-        }
-
         const cashTx = cashTxRes.data.createCashTransaction;
 
         if (!parentId) {
-            await context.executeGraphQL({
+            await executeAccounting(context, {
                 context,
                 query: gql`
                     mutation UpdateCashTxStatus($id: ID!) {
-                        updateCashTransaction(id: $id, data: { status: "UNALLOCATED" }) {
+                        updateCashTransaction(id: $id, data: { status: UNALLOCATED }) {
                             id
                         }
                     }
@@ -131,7 +132,7 @@ class SettlementService {
         }
 
         // 2. Lấy thông tin Phụ huynh và công nợ hiện tại
-        const parentRes = await context.executeGraphQL({
+        const parentRes = await executeAccounting(context, {
             context,
             query: gql`
                 query GetParentDetails($id: ID!) {
@@ -172,7 +173,7 @@ class SettlementService {
                 }
             `;
 
-            const settleRes = await context.executeGraphQL({
+            const settleRes = await executeAccounting(context, {
                 context,
                 query: createSettlementQuery,
                 variables: {
@@ -196,7 +197,7 @@ class SettlementService {
         }
 
         // 4. Cập nhật số dư balance và debt của Phụ huynh
-        await context.executeGraphQL({
+        await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateParentBalanceAndDebt($id: ID!, $balance: Int!, $debt: Int!) {
@@ -226,7 +227,7 @@ class SettlementService {
         }
 
         // 5. Cập nhật trạng thái của CashTransaction: ALLOCATED vì đã gán thành công vào ví phụ huynh
-        const updateCashTxRes = await context.executeGraphQL({
+        const updateCashTxRes = await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateCashTxStatus($id: ID!) {
@@ -267,7 +268,7 @@ class SettlementService {
             success: true,
             cashTransaction: {
                 ...cashTx,
-                status: updateCashTxRes?.data?.updateCashTransaction?.status || 'ALLOCATED'
+                status: updateCashTxRes.data.updateCashTransaction.status
             },
             settledAmount: totalSettled,
             remainingBalance: Math.max(0, currentBalance),
@@ -282,6 +283,8 @@ class SettlementService {
      * @param {Object} params - { parentId, amount, paymentMethod, reason, userId }
      */
     static async processOutflow(context, params) {
+        const repository = accountingMongo.repositoryFor(context);
+        if (repository) return repository.outflow(params);
         const {
             parentId,
             amount,
@@ -296,7 +299,7 @@ class SettlementService {
         }
 
         // 1. Kiểm tra thông tin phụ huynh
-        const parentRes = await context.executeGraphQL({
+        const parentRes = await executeAccounting(context, {
             context,
             query: gql`
                 query GetParentDetails($id: ID!) {
@@ -348,19 +351,15 @@ class SettlementService {
             cashTxData.createdBy = { connect: { id: userId } };
         }
 
-        const cashTxRes = await context.executeGraphQL({
+        const cashTxRes = await executeAccounting(context, {
             context,
             query: createCashTxQuery,
             variables: { data: cashTxData }
         });
 
-        if (cashTxRes.errors || !cashTxRes.data?.createCashTransaction) {
-            throw new Error('Không thể tạo phiếu chi: ' + JSON.stringify(cashTxRes.errors));
-        }
-
         // 3. Trừ balance của Phụ huynh
         const newBalance = currentBalance - numAmount;
-        await context.executeGraphQL({
+        await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateParentBalance($id: ID!, $balance: Int!) {
@@ -386,6 +385,8 @@ class SettlementService {
      * @param {Object} params - { parentId, amount, settleType, note, userId }
      */
     static async transferBalanceToDebt(context, params) {
+        const repository = accountingMongo.repositoryFor(context);
+        if (repository) return repository.transfer(params);
         const {
             parentId,
             amount = null, // null nghĩa là cấn trừ tối đa
@@ -394,7 +395,7 @@ class SettlementService {
             userId = null
         } = params;
 
-        const parentRes = await context.executeGraphQL({
+        const parentRes = await executeAccounting(context, {
             context,
             query: gql`
                 query GetParentDetails($id: ID!) {
@@ -445,7 +446,7 @@ class SettlementService {
             }
         `;
 
-        const settleRes = await context.executeGraphQL({
+        const settleRes = await executeAccounting(context, {
             context,
             query: createSettlementQuery,
             variables: {
@@ -459,15 +460,11 @@ class SettlementService {
             }
         });
 
-        if (settleRes.errors || !settleRes.data?.createPaymentSettlement) {
-            throw new Error('Lỗi khi tạo chứng từ cấn trừ: ' + JSON.stringify(settleRes.errors));
-        }
-
         // Cập nhật Parent
         const newBalance = balance - settleAmount;
         const newDebt = debt - settleAmount;
 
-        await context.executeGraphQL({
+        await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateParentBalanceAndDebt($id: ID!, $balance: Int!, $debt: Int!) {
@@ -510,11 +507,12 @@ class SettlementService {
      * @param {Object} params - { parentId, amount, itemType, itemId, note }
      */
     static async processBillCreated(context, params) {
+        accountingMongo.rejectUnsupported(context);
         const { parentId, amount, itemType = 'ItemKetSo', itemId = null, note = '' } = params;
         const numAmount = parseInt(amount, 10);
         if (isNaN(numAmount) || numAmount <= 0) return;
 
-        const parentRes = await context.executeGraphQL({
+        const parentRes = await executeAccounting(context, {
             context,
             query: gql`
                 query GetParentDetails($id: ID!) {
@@ -539,7 +537,7 @@ class SettlementService {
         if (currentBalance > 0) {
             settledAmount = Math.min(currentBalance, currentDebt);
 
-            await context.executeGraphQL({
+            await executeAccounting(context, {
                 context,
                 query: gql`
                     mutation CreateSettlement($data: PaymentSettlementCreateInput!) {
@@ -564,7 +562,7 @@ class SettlementService {
         }
 
         // Cập nhật Parent
-        await context.executeGraphQL({
+        await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateParentBalanceAndDebt($id: ID!, $balance: Int!, $debt: Int!) {
@@ -608,6 +606,8 @@ class SettlementService {
      * @param {Object} params - { cashTxId, parentId, autoSettle, userId, note }
      */
     static async allocateCashTransaction(context, params) {
+        const repository = accountingMongo.repositoryFor(context);
+        if (repository) return repository.allocate(params);
         const {
             cashTxId,
             parentId,
@@ -621,7 +621,7 @@ class SettlementService {
         }
 
         // 1. Lấy thông tin CashTransaction
-        const txRes = await context.executeGraphQL({
+        const txRes = await executeAccounting(context, {
             context,
             query: gql`
                 query GetCashTx($id: ID!) {
@@ -651,7 +651,7 @@ class SettlementService {
         }
 
         // 2. Lấy thông tin Phụ huynh
-        const parentRes = await context.executeGraphQL({
+        const parentRes = await executeAccounting(context, {
             context,
             query: gql`
                 query GetParentDetails($id: ID!) {
@@ -692,7 +692,7 @@ class SettlementService {
                 }
             `;
 
-            const settleRes = await context.executeGraphQL({
+            const settleRes = await executeAccounting(context, {
                 context,
                 query: createSettlementQuery,
                 variables: {
@@ -716,7 +716,7 @@ class SettlementService {
         }
 
         // 4. Cập nhật Parent balance & debt
-        await context.executeGraphQL({
+        await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateParentBalanceAndDebt($id: ID!, $balance: Int!, $debt: Int!) {
@@ -746,7 +746,7 @@ class SettlementService {
         }
 
         // 5. Cập nhật CashTransaction: luôn là ALLOCATED khi đã gán vào ví phụ huynh
-        const updateAllocatedRes = await context.executeGraphQL({
+        const updateAllocatedRes = await executeAccounting(context, {
             context,
             query: gql`
                 mutation UpdateCashTxAllocated($id: ID!, $parentId: ID!) {
@@ -774,15 +774,7 @@ class SettlementService {
             variables: { id: cashTxId, parentId }
         });
 
-        const updatedTx = updateAllocatedRes.data?.updateCashTransaction || {
-            id: cashTxId,
-            status: 'ALLOCATED',
-            parent: {
-                id: parent.id,
-                code: parent.code,
-                name: parent.name
-            }
-        };
+        const updatedTx = updateAllocatedRes.data.updateCashTransaction;
 
         // Bắn sự kiện realtime WebSocket tới App Phụ Huynh
         try {

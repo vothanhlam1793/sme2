@@ -2,6 +2,7 @@ const { Text, Select, Integer, Relationship, DateTime } = require('@keystonejs/f
 const { gql } = require('apollo-server-express');
 const code = require('../func/code');
 const SettlementService = require('../func/settlement');
+const executeAccounting = require('../func/accountingGraphQL');
 
 module.exports = {
     fields: {
@@ -94,7 +95,9 @@ module.exports = {
         afterChange: async ({ operation, updatedItem, existingItem, context }) => {
             if (operation === 'create' && updatedItem.parent && updatedItem.amount && updatedItem.status === 'SUCCESS') {
                 try {
-                    const parentRes = await context.executeGraphQL({
+                    const parentId = String(updatedItem.parent.id || updatedItem.parent._id || updatedItem.parent);
+                    const settlementId = String(updatedItem.id || updatedItem._id || '');
+                    const parentRes = await executeAccounting(context, {
                         context,
                         query: gql`
                             query GetParent($id: ID!) {
@@ -105,7 +108,7 @@ module.exports = {
                                 }
                             }
                         `,
-                        variables: { id: updatedItem.parent }
+                        variables: { id: parentId }
                     });
 
                     const parent = parentRes.data?.Parent;
@@ -117,7 +120,7 @@ module.exports = {
                         const newDebt = Math.max(0, curDebt - settleAmount);
                         const newBal = Math.max(0, curBal - settleAmount);
 
-                        await context.executeGraphQL({
+                        await executeAccounting(context, {
                             context,
                             query: gql`
                                 mutation UpdateParentFinances($id: ID!, $debt: Int!, $balance: Int!) {
@@ -141,12 +144,12 @@ module.exports = {
                             change: -settleAmount,
                             newDebt,
                             itemS: 'PaymentSettlement',
-                            idItemS: updatedItem.id,
+                            idItemS: settlementId,
                             type: 'DOWN'
                         });
                     }
                 } catch (e) {
-                    console.warn('[PaymentSettlement hook afterChange error]:', e.message);
+                    throw e;
                 }
             }
         }

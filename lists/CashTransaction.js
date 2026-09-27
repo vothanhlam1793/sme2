@@ -2,6 +2,9 @@ const { Text, Select, Integer, Relationship, DateTime } = require('@keystonejs/f
 const code = require('../func/code');
 
 module.exports = {
+    adapterConfig: {
+        configureMongooseSchema: require('../func/accountingMongo').configureCashSchema
+    },
     fields: {
         code: {
             type: Text,
