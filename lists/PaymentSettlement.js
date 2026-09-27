@@ -95,8 +95,16 @@ module.exports = {
         afterChange: async ({ operation, updatedItem, existingItem, context }) => {
             if (operation === 'create' && updatedItem.parent && updatedItem.amount && updatedItem.status === 'SUCCESS') {
                 try {
-                    const parentId = String(updatedItem.parent.id || updatedItem.parent._id || updatedItem.parent);
-                    const settlementId = String(updatedItem.id || updatedItem._id || '');
+                    const toId = val => {
+                        if (!val) return '';
+                        if (typeof val === 'string') return val;
+                        if (val._id) return typeof val._id.toString === 'function' ? val._id.toString() : String(val._id);
+                        if (typeof val.toString === 'function' && val.toString() !== '[object Object]') return val.toString();
+                        if (typeof val.id === 'string') return val.id;
+                        return String(val);
+                    };
+                    const parentId = toId(updatedItem.parent);
+                    const settlementId = toId(updatedItem.id || updatedItem._id);
                     const parentRes = await executeAccounting(context, {
                         context,
                         query: gql`
