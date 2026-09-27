@@ -8,6 +8,11 @@ module.exports = async function executeAccounting(context, options) {
         const value = result.data[(field.alias || field.name).value];
         return !value || !value.id;
     })) {
+        if (result?.errors?.length) {
+            console.error('[AccountingGraphQL Error Details]:', JSON.stringify(result.errors, null, 2));
+        } else if (result?.data) {
+            console.error('[AccountingGraphQL Missing ID in Data]:', JSON.stringify(result.data, null, 2));
+        }
         // Do not expose GraphQL internals, credentials or financial payloads to clients.
         const error = new Error('Accounting GraphQL operation failed; partial writes may require reconciliation');
         error.code = 'ACCOUNTING_GRAPHQL_FAILED';

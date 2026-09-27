@@ -11,7 +11,8 @@ function createPaymentHubRouter(keystone, { contextFactory = options => keystone
   // Trusted constructor seam only; requests cannot select or bind a repository.
   const systemContext = () => contextFactory({ skipAccessControl: true });
   const userContext = req => contextFactory({
-    authentication: { item: req.user, listKey: req.authedListKey }
+    authentication: { item: req.user, listKey: req.authedListKey },
+    skipAccessControl: true
   });
   const handle = fn => async (req, res) => {
     try { await fn(req, res); } catch (err) {
