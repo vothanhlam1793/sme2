@@ -135,7 +135,7 @@ function createParentPortalRouter(keystone) {
             const notifQuery = gql`
                 query GetNotifications {
                     allNotifications(
-                        where: { status: "PUBLISHED" }
+                        where: { status: PUBLISHED }
                         sortBy: publishedAt_DESC
                         first: 10
                     ) {
@@ -211,7 +211,7 @@ function createParentPortalRouter(keystone) {
             const settlementsQuery = gql`
                 query GetSettlements($parentId: ID!) {
                     allPaymentSettlements(
-                        where: { parent: { id: $parentId }, status: "SUCCESS" }
+                        where: { parent: { id: $parentId }, status: SUCCESS }
                         sortBy: settledAt_DESC
                         first: 5
                     ) {
