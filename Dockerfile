@@ -4,7 +4,7 @@ FROM node:${NODE_VERSION}-alpine AS build
 
 WORKDIR /home/node
 
-RUN apk add --no-cache build-base python2
+RUN apk add --no-cache build-base python3
 
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile
