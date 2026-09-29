@@ -66,6 +66,7 @@ paymentSettlement.setKeystone(keystone);
 keystone.createList('PaymentSettlement', paymentSettlement);
 keystone.createList('Notification', require("./lists/Notification"));
 keystone.createList('SystemSetting', require("./lists/SystemSetting"));
+keystone.createList('CameraIntegration', require('./lists/CameraIntegration'));
 keystone.createList('Fee', require("./lists/Fee"));
 keystone.createList('FeeDocumentLink', require("./lists/FeeDocumentLink"));
 keystone.createList('FeeDefinition', require("./lists/FeeDefinition"));
@@ -91,6 +92,7 @@ const wsHub = require('./routes/wsHub');
 module.exports = {
   keystone,
   configureExpress: (app, server) => {
+    app.use('/api/camera-integration', require('./routes/cameraIntegration')(keystone));
     app.set('trust proxy', 1);
     app.use('/api/portal', createParentPortalRouter(keystone));
     app.use('/api/payment-hub', createPaymentHubRouter(keystone));
