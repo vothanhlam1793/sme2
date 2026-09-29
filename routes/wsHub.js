@@ -85,7 +85,7 @@ class ParentWsHub {
       return { success: false, message: 'Missing phone, ts, or sig' };
     }
 
-    const context = this.keystone.createContext({ schema: this.keystone.schema, isAccessAllowed: true });
+    const context = this.keystone.createContext({ skipAccessControl: true });
     const config = await this.getPortalConfig(context);
 
     if (config.portal_enabled === false) {

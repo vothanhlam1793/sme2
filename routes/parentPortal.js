@@ -60,7 +60,7 @@ function createParentPortalRouter(keystone) {
                 cleanPhone = '0' + cleanPhone.substring(2);
             }
 
-            const context = keystone.createContext({ schema: keystone.schema, isAccessAllowed: true });
+            const context = keystone.createContext({ skipAccessControl: true });
 
             // Tìm Phone record liên kết với Parent
             const findPhoneQuery = gql`
