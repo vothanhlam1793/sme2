@@ -30,7 +30,8 @@ function createParentPortalRouter(keystone) {
      */
     const authenticatePortal = (req, res, next) => {
         const portalKey = req.headers['x-portal-token'] || req.query.portal_token;
-        const validKey = process.env.PARENT_PORTAL_SECRET || 'camerangochoang_portal_secret_2026';
+        const validKey = process.env.PARENT_PORTAL_SECRET;
+        if (!validKey) return res.status(503).json({ success: false, message: 'Portal integration is not configured' });
         
         if (portalKey && portalKey === validKey) {
             return next();

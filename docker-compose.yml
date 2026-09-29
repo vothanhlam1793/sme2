@@ -15,4 +15,20 @@ services:
       MONGO_USER: ${MONGO_USER:?Set MONGO_USER in .env}
       MONGO_PASS: ${MONGO_PASS:?Set MONGO_PASS in .env}
       MONGO_AUTH_SOURCE: ${MONGO_AUTH_SOURCE:-admin}
+      PARENT_PORTAL_SECRET: ${PARENT_PORTAL_SECRET:?Set PARENT_PORTAL_SECRET in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env}
+      WS_PORT: ${WS_PORT:-3013}
+      VIETQR_BANK_CODE: ${VIETQR_BANK_CODE:?Set VIETQR_BANK_CODE in .env}
+      VIETQR_ACCOUNT_NO: ${VIETQR_ACCOUNT_NO:?Set VIETQR_ACCOUNT_NO in .env}
+      VIETQR_ACCOUNT_NAME: ${VIETQR_ACCOUNT_NAME:?Set VIETQR_ACCOUNT_NAME in .env}
+    ports:
+      - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-3100}:3000"
+      - "${BACKEND_BIND:-127.0.0.1}:${WS_PORT:-3013}:3013"
     restart: unless-stopped
+    networks:
+      - shared-services
+
+networks:
+  shared-services:
+    external: true
+    name: ${DOCKER_NETWORK:-shared-services}

@@ -12,6 +12,7 @@ dotenv.config()
 
 const { MongooseAdapter: Adapter } = require('@keystonejs/adapter-mongoose');
 const PROJECT_NAME = process.env.PROJECT_NAME || 'sme';
+const allowedOrigins = (process.env.CORS_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
 
 const adapterConfig = { 
   mongoUri: process.env.MONGO_URL,
@@ -32,7 +33,7 @@ if (!process.env.COOKIE_SECRET) {
 const keystone = new Keystone({
   adapter: new Adapter(adapterConfig),
   cors: {
-    origin: '*', // Thiết lập origin là "*"
+    origin: allowedOrigins.length ? allowedOrigins : false,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
     credentials: true,

@@ -69,11 +69,8 @@ class ParentWsHub {
       console.warn('[WS Hub] Error reading PORTAL_GATEWAY_CONFIG:', e.message);
     }
 
-    return {
-      portal_enabled: true,
-      api_key: process.env.PARENT_PORTAL_SECRET || 'camerangochoang_portal_secret_2026',
-      ticket_ttl_seconds: 300
-    };
+    if (!process.env.PARENT_PORTAL_SECRET) throw new Error('PARENT_PORTAL_SECRET is not configured');
+    return { portal_enabled: true, api_key: process.env.PARENT_PORTAL_SECRET, ticket_ttl_seconds: 300 };
   }
 
   /**
