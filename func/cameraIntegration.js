@@ -54,7 +54,30 @@ function entitlement(phone, mapping) {
   const students = parent.status === 'DEACTIVE' ? [] : (parent.hocsinhs || []).filter(s => s.status === 'DANG_HOC');
   const missing = students.filter(s => !s.lophoc || !mapping[s.lophoc.id]);
   if (missing.length) fail(`Chưa liên kết lớp camera: ${missing.map(s => s.lophoc?.name || s.name).join(', ')}`, 409);
+  const allStudents = parent.hocsinhs || [];
   return { phone: normalizePhone(phone.number), name: phone.name || parent.name,
-    classIds: [...new Set(students.map(s => mapping[s.lophoc.id]))] };
+    classIds: [...new Set(students.map(s => mapping[s.lophoc.id]))],
+    disableAccount: allStudents.length > 0 && allStudents.every(s => s.status === 'NGHI_LUON') };
 }
-module.exports = { fail, normalizePhone, baseUrl, cameraRequest, entitlement };
+function accountRequest(config, phone) {
+  return cameraRequest(config, `parent?phone=${encodeURIComponent(phone)}`).then(result => result.data)
+    .catch(error => error.code === 'USER_NOT_FOUND' ? null : Promise.reject(error));
+}
+async function syncPhoneCamera(config, phone, request = cameraRequest, lookup = accountRequest) {
+  const account = await lookup(config, normalizePhone(phone.number));
+  if (!account) return { skipped: true, reason: 'ACCOUNT_NOT_FOUND' };
+  const access = entitlement(phone, config.mapping || {});
+  if (access.classIds.length) {
+    if (account.state === 'DISABLED') await request(config, 'toggle-account', { phone: access.phone, enabled: true });
+    await request(config, 'assign-class', { phone: access.phone, classIds: access.classIds });
+    await request(config, 'toggle-active', { phone: access.phone, active: true });
+    return { synced: true, classIds: access.classIds };
+  }
+  await request(config, 'toggle-active', { phone: access.phone, active: false });
+  if (access.disableAccount) {
+    await request(config, 'toggle-account', { phone: access.phone, enabled: false });
+    return { disabled: true };
+  }
+  return { suspended: true };
+}
+module.exports = { fail, normalizePhone, baseUrl, cameraRequest, entitlement, accountRequest, syncPhoneCamera };

@@ -91,6 +91,7 @@ module.exports = {
                     resolvedData.updatedBy = user.id;
                 }
             }
-        }
+        },
+        afterChange: require('../func/cameraLifecycle').syncAfterStudentChange
     }
 };

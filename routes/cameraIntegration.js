@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { access } = require('../setting/access');
-const { fail, baseUrl, normalizePhone, cameraRequest, entitlement } = require('../func/cameraIntegration');
+const { fail, baseUrl, normalizePhone, cameraRequest, entitlement, syncPhoneCamera } = require('../func/cameraIntegration');
 
 module.exports = (keystone, { request = cameraRequest } = {}) => {
   const router = express.Router();
@@ -105,11 +105,13 @@ module.exports = (keystone, { request = cameraRequest } = {}) => {
       const expected = entitlement(phone, config.mapping || {});
       if (!expected.classIds.length) {
         if (!account) fail('Không có bé đang học để cấp tài khoản camera', 409);
-        // Nghỉ học: chỉ tắt quyền camera, giữ nguyên lớp, PIN và trạng thái tài khoản.
-        return res.json(await request(config, 'toggle-active', { phone: number, active: false }));
+        await request(config, 'toggle-active', { phone: number, active: false });
+        if (expected.disableAccount) return res.json(await request(config, 'toggle-account', { phone: number, enabled: false }));
+        return res.json({ success: true, data: { ...account, active: false }, message: 'Đã tạm ngưng quyền camera.' });
       }
       await validateClasses(config, expected.classIds);
-      const payload = { ...expected, username: number };
+      const { disableAccount, ...payload } = expected;
+      payload.username = number;
       // Preserve explicit camera suspension and PIN on routine synchronization.
       if (!account) Object.assign(payload, { createOnly: true, active: true, password: String(crypto.randomInt(1000, 10000)) });
       result = await request(config, 'sync-parent', payload);

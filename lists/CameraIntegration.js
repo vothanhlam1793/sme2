@@ -6,5 +6,6 @@ module.exports = {
     key: { type: Text, isRequired: true, isUnique: true },
     value: { type: Text, isRequired: true },
   },
-  access: { read: false, create: false, update: false, delete: false },
+  // Functions retain GraphQL operations for the internal skipAccessControl context.
+  access: { read: () => false, create: () => false, update: () => false, delete: () => false },
 };

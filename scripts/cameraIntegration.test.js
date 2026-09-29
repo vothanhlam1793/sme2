@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
-const { entitlement, normalizePhone, baseUrl } = require('../func/cameraIntegration');
+const { entitlement, normalizePhone, baseUrl, syncPhoneCamera } = require('../func/cameraIntegration');
 const createRouter = require('../routes/cameraIntegration');
 
 test('entitlements aggregate current children, deduplicate classes and reject unmapped children', () => {
@@ -19,6 +19,35 @@ test('entitlements aggregate current children, deduplicate classes and reject un
   assert.throws(() => normalizePhone('bad'));
   for (const url of ['http://camera.test', 'https://user:pass@camera.test', 'https://camera.test/path', 'https://camera.test/?key=secret']) assert.throws(() => baseUrl(url));
   assert.equal(baseUrl('https://camera.test/'), 'https://camera.test');
+});
+
+test('camera lifecycle updates only DANG_HOC classes and disables all accounts only after every child NGHI_LUON', async () => {
+  const config = { baseUrl: 'https://camera.invalid', apiKey: 'fixture-key', mapping: { c1: 'cam1', c2: 'cam2' } };
+  const phone = { number: '0901234567', name: 'Parent', parent: { name: 'Parent', hocsinhs: [
+    { status: 'DANG_HOC', lophoc: { id: 'c1' } }, { status: 'DANG_HOC', lophoc: { id: 'c2' } }
+  ] } };
+  const calls = [];
+  const request = async (settings, path, data) => { calls.push({ path, data }); return { success: true, data: {} }; };
+  const lookup = async () => ({ id: 'camera-account', state: 'NORMAL', active: true });
+  await syncPhoneCamera(config, phone, request, lookup);
+  assert.deepEqual(calls, [
+    { path: 'assign-class', data: { phone: '0901234567', classIds: ['cam1', 'cam2'] } },
+    { path: 'toggle-active', data: { phone: '0901234567', active: true } }
+  ]);
+  phone.parent.hocsinhs[1].status = 'NGHI_LUON';
+  calls.length = 0;
+  await syncPhoneCamera(config, phone, request, lookup);
+  assert.deepEqual(calls, [
+    { path: 'assign-class', data: { phone: '0901234567', classIds: ['cam1'] } },
+    { path: 'toggle-active', data: { phone: '0901234567', active: true } }
+  ]);
+  phone.parent.hocsinhs[0].status = 'NGHI_LUON';
+  calls.length = 0;
+  await syncPhoneCamera(config, phone, request, lookup);
+  assert.deepEqual(calls, [
+    { path: 'toggle-active', data: { phone: '0901234567', active: false } },
+    { path: 'toggle-account', data: { phone: '0901234567', enabled: false } }
+  ]);
 });
 
 test('management HTTP authentication, secret redaction, mapping validation and account lifecycle', async t => {
