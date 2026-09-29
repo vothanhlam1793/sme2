@@ -67,7 +67,9 @@ async function fixture(run, { graphqlError = false, existingBankRef = false } = 
 test('management denies anonymous/forged/staff sessions before any DB or accounting access', async () => {
   await fixture(async ({ request, queries }) => {
     calls.length = 0;
-    for (const [path, body] of [['/config', undefined], ['/config', {}], ['/sync', {}], ['/assign-parent', { parentId: 'p' }]]) {
+    for (const [path, body] of [['/config', undefined], ['/config', {}], ['/sync', {}], ['/assign-parent', { parentId: 'p' }],
+      ['/fees', undefined], ['/fees', {}], ['/fees/0123456789abcdef01234567/cancel', { reason: 'test' }],
+      ['/fees/0123456789abcdef01234567/attachments', { documentType: 'INVOICE', documentId: 'invoice' }]]) {
       assert.equal((await request(path, body)).status, 401);
       assert.equal((await request(path, body, { authorization: 'Bearer forged', 'x-role': 'super-admin' })).status, 401);
       assert.equal((await request(path, body, { authorization: 'Bearer staff-session' })).status, 403);

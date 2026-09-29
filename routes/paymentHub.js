@@ -5,6 +5,9 @@ const { access } = require('../setting/access');
 const security = require('./paymentHubSecurity');
 const { repositoryFor } = require('../func/accountingMongo');
 const SchoolFund = require('../func/schoolFund');
+const { FeeDomain } = require('../func/feeDomain');
+const { FeeGenerationService } = require('../func/feeGenerationService');
+const { InvoiceService } = require('../func/invoiceService');
 
 function createPaymentHubRouter(keystone, { contextFactory = options => keystone.createContext(options) } = {}) {
   const router = express.Router();
@@ -71,6 +74,88 @@ function createPaymentHubRouter(keystone, { contextFactory = options => keystone
     next();
   });
   management.use(express.json({ limit: '100kb' }));
+  const feeDomain = () => new FeeDomain(keystone);
+  const feeGenService = () => new FeeGenerationService(keystone);
+  const invoiceService = () => new InvoiceService(keystone);
+
+  management.post('/invoices/admission', handle(async (req, res) => {
+    const service = invoiceService();
+    const result = await service.createAdmissionInvoice(userContext(req), req.body, req.user.id || req.user._id);
+    res.status(201).json(result);
+  }));
+
+  management.post('/invoices/retail', handle(async (req, res) => {
+    const service = invoiceService();
+    const result = await service.createRetailInvoice(userContext(req), req.body, req.user.id || req.user._id);
+    res.status(201).json(result);
+  }));
+
+  management.get('/invoices/:id', handle(async (req, res) => {
+    const service = invoiceService();
+    const result = await service.getInvoiceDetail(userContext(req), req.params.id);
+    res.json({ success: true, data: result });
+  }));
+
+  management.get('/fee-definitions', handle(async (req, res) => {
+    const service = feeGenService();
+    await service.ensureDefaultDefinitions(req.user.id || req.user._id);
+    res.json({ success: true, data: await service.listDefinitions() });
+  }));
+
+  management.post('/fee-definitions', handle(async (req, res) => {
+    const service = feeGenService();
+    const data = await service.createDefinition(req.body, req.user.id || req.user._id);
+    res.status(201).json({ success: true, data });
+  }));
+
+  management.put('/fee-definitions/:id', handle(async (req, res) => {
+    const service = feeGenService();
+    const data = await service.updateDefinition(req.params.id, req.body, req.user.id || req.user._id);
+    res.json({ success: true, data });
+  }));
+
+  management.post('/fee-definitions/:id/run', handle(async (req, res) => {
+    const service = feeGenService();
+    const result = await service.runDefinition(req.params.id, req.body || {}, req.user.id || req.user._id);
+    res.json({ success: true, data: result });
+  }));
+
+  management.get('/fee-runs', handle(async (req, res) => {
+    const service = feeGenService();
+    res.json({ success: true, data: await service.listRuns(req.query) });
+  }));
+
+  management.get('/fee-runs/:id', handle(async (req, res) => {
+    const service = feeGenService();
+    res.json({ success: true, data: await service.getRunDetail(req.params.id) });
+  }));
+
+  management.post('/fees/manual-bulk', handle(async (req, res) => {
+    const service = feeGenService();
+    const result = await service.createManualBulk(req.body, req.user.id || req.user._id);
+    res.json({ success: true, data: result });
+  }));
+
+  management.get('/fees', handle(async (req, res) => {
+    res.json({ success: true, data: await feeDomain().list(req.query) });
+  }));
+  management.post('/fees', handle(async (req, res) => {
+    const data = await feeDomain().create(req.body, req.user.id || req.user._id);
+    res.status(201).json({ success: true, data });
+  }));
+  management.post('/fees/:feeId/cancel', handle(async (req, res) => {
+    const data = await feeDomain().cancel(req.params.feeId, req.body?.reason, req.user.id || req.user._id);
+    res.json({ success: true, data });
+  }));
+  management.post('/fees/:feeId/attachments', handle(async (req, res) => {
+    const data = await feeDomain().attach(req.params.feeId, req.body, req.user.id || req.user._id);
+    res.status(201).json({ success: true, data });
+  }));
+  management.delete('/fees/:feeId/attachments/:attachmentId', handle(async (req, res) => {
+    const data = await feeDomain().detach(req.params.feeId, req.params.attachmentId, req.body?.reason,
+      req.user.id || req.user._id);
+    res.json({ success: true, data });
+  }));
   async function fundSetup(context) {
     const data = await execute(context, gql`query { allSystemSettings(where: { key: "SCHOOL_FUND_SETUP" }) { id value } }`);
     const rows = data.allSystemSettings || [];
@@ -114,22 +199,53 @@ function createPaymentHubRouter(keystone, { contextFactory = options => keystone
     const repo = repositoryFor(userContext(req));
     return repo;
   }
+  function fundRange(query) {
+    const from = query.from, to = query.to;
+    if (!from && !to) return null;
+    const valid = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      new Date(`${value}T00:00:00+07:00`).toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }) === value;
+    if (!valid(from) || !valid(to)) { const error = new Error('Khoảng thời gian không hợp lệ'); error.status = 400; throw error; }
+    const fromDate = new Date(`${from}T00:00:00+07:00`);
+    const toDate = new Date(`${to}T00:00:00+07:00`);
+    if (fromDate > toDate) { const error = new Error('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc'); error.status = 400; throw error; }
+    const next = new Date(toDate); next.setUTCDate(next.getUTCDate() + 1);
+    return { from: fromDate, toExclusive: next, fromText: from, toText: to };
+  }
   management.get('/school-fund', handle(async (req, res) => {
     const repo = fundRepository(req, res);
     const raw = Number(req.query.page || 1);
     if (!Number.isSafeInteger(raw) || raw < 1 || raw > 100000) return res.status(400).json({ success: false, error: 'Trang không hợp lệ' });
-    if (!repo) return res.json({ success: true, data: await new SchoolFund(keystone).summary(raw) });
+    const range = fundRange(req.query);
+    if (!repo) return res.json({ success: true, data: await new SchoolFund(keystone).summary(raw, range) });
     // Single snapshot: displayed balance and ledger page describe the same revision.
     const session = await repo.connection.startSession();
     let data;
     try {
       await session.withTransaction(async () => {
         const fund = await repo.schoolFund.findOne({ _id: 'school' }, { session });
-        const rows = await repo.fundEntries.find({}, { session }).sort({ revision: -1 }).skip((raw - 1) * 50).limit(50).toArray();
-        const total = await repo.fundEntries.countDocuments({}, { session });
-        data = { cash: fund.cash, revision: fund.revision, page: raw, pageSize: 50, total, rows };
+        const match = range ? { createdAt: { $gte: range.from, $lt: range.toExclusive } } : {};
+        const rows = await repo.fundEntries.find(match, { session }).sort({ createdAt: -1, _id: -1 }).skip((raw - 1) * 50).limit(50).toArray();
+        const total = await repo.fundEntries.countDocuments(match, { session });
+        const movement = await repo.fundEntries.aggregate([{ $match: match }, { $group: { _id: null,
+          income: { $sum: { $cond: [{ $gt: ['$delta', 0] }, '$delta', 0] } },
+          expense: { $sum: { $cond: [{ $lt: ['$delta', 0] }, { $abs: '$delta' }, 0] } }, net: { $sum: '$delta' } } }], { session }).toArray();
+        const period = movement[0] || { income: 0, expense: 0, net: 0 };
+        data = { cash: fund.cash, revision: fund.revision, page: raw, pageSize: 50, total, rows,
+          periodIncome: period.income, periodExpense: period.expense, periodNet: period.net,
+          from: range && range.fromText, to: range && range.toText };
       }, { readConcern: { level: 'snapshot' } });
     } finally { await session.endSession(); }
+    if (data && data.rows && data.rows.length) {
+      const userIds = [...new Set(data.rows.map(r => r.userId).filter(Boolean))];
+      try {
+        const users = await repo.collections.User.find({ _id: { $in: userIds.map(id => repo.id(id)) } }).toArray();
+        const userMap = new Map(users.map(u => [String(u._id), u.name]));
+        data.rows = data.rows.map(r => ({
+          ...r,
+          createdByName: r.userId ? (userMap.get(String(r.userId)) || 'Nhân viên') : 'Hệ thống'
+        }));
+      } catch (_) {}
+    }
     res.json({ success: true, data });
   }));
   management.post('/school-fund/vouchers', handle(async (req, res) => {

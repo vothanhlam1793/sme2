@@ -598,6 +598,24 @@ class SettlementService {
                 type: 'DOWN'
             });
         }
+
+        // Bắn sự kiện realtime WebSocket tới App Phụ Huynh khi phát sinh phiếu học phí / hóa đơn
+        try {
+            const wsHub = require('../routes/wsHub');
+            wsHub.sendToParent(parentId, 'INVOICE_PUBLISHED', {
+                invoiceCode: itemId || itemType,
+                itemType,
+                itemId,
+                totalAmount: numAmount,
+                settledAmount,
+                remainingDebt: Math.max(0, currentDebt),
+                remainingBalance: Math.max(0, currentBalance),
+                note: note || `Phát sinh ${itemType}`,
+                publishedAt: new Date().toISOString()
+            });
+        } catch (e) {
+            console.warn('[WS Hub Bill Broadcast Warning]:', e.message);
+        }
     }
 
     /**

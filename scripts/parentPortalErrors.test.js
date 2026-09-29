@@ -67,9 +67,12 @@ const parent = { id: 'p1', code: 'PH000001', name: 'Parent', debt: 100, balance:
 const successful = [
     { data: { allPhones: [{ parent }] } },
     { data: { allNotifications: [] } },
-    { data: { allHoaDons: [] } },
-    { data: { allPaymentSettlements: [{ code: 'STL000001', amount: 50,
-        settledAt: '2026-09-27', settleType: 'AUTO_ACB', note: 'Settlement' }] } }
+    { data: { allHoaDons: [], allItemKetSos: [] } },
+    { data: { 
+        allPaymentSettlements: [{ code: 'STL000001', amount: 50,
+            settledAt: '2026-09-27', settleType: 'AUTO_ACB', note: 'Settlement' }],
+        allPhieuThus: []
+    } }
 ];
 let checks = 0;
 async function expectStatus(url, body, results, status) {
@@ -85,7 +88,7 @@ async function expectStatus(url, body, results, status) {
     const ok = await expectStatus('/parent-summary', body, successful, 200);
     assert.equal(calls[0].variables.number, '0901234567');
     assert.deepEqual(Object.keys(ok.body.data),
-        ['parent', 'students', 'vietqr', 'latestInvoice', 'notifications', 'paymentHistory']);
+        ['parent', 'students', 'vietqr', 'latestInvoice', 'invoices', 'notifications', 'paymentHistory']);
     assert.deepEqual(ok.body.data.students[0], {
         id: 's1', name: 'Student', birthday: null, status: null, note: '',
         tuitionDiscount: '0', className: 'Class', classId: 'c1',

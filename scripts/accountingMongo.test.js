@@ -54,6 +54,11 @@ test('native accounting against disposable Mongo replica set and real Keystone a
             assert.equal((await repo.collections.PaymentSettlement.findOne({ _id: undated })).settledAt, undefined);
             assert.equal((await fund.funds.findOne({ _id: 'school' })).baseline.find(r => r.id === String(undated)).openingClassification, 'UNDATED_INCLUDED_BY_USER_CONFIRMATION');
             assert.equal((await fund.summary()).cash, 150);
+            const february = await fund.summary(1, { from: new Date('2021-01-31T17:00:00Z'),
+                toExclusive: new Date('2021-02-28T17:00:00Z'), fromText: '2021-02-01', toText: '2021-02-28' });
+            assert.deepEqual([february.periodIncome, february.periodExpense, february.periodNet], [100, 0, 100]);
+            assert.equal(february.total, 1);
+            assert.equal(february.rows[0]._id, `settlement:${fresh}`);
             await fund.initialize({ startDate: '2021-01-01', openingCash: 999 }, 'fixture-admin');
             assert.equal((await fund.summary()).cash, 150);
             const command = { operationId: 'op1', type: 'WITHDRAWAL', amount: 120, reason: 'Rút', counterparty: 'Trường', userId: 'fixture-admin' };
@@ -64,8 +69,10 @@ test('native accounting against disposable Mongo replica set and real Keystone a
             await fund.post({ operationId: 'undo', voucherId: results[0].id, reason: 'Hủy', userId: 'fixture-admin' }, true);
             assert.equal((await fund.summary()).cash, 150);
             await repo.collections.PaymentSettlement.updateOne({ _id: fresh }, { $set: { status: 'REVERTED' } });
+            await fund.syncSettlement(await repo.collections.PaymentSettlement.findOne({ _id: fresh }));
             assert.equal((await fund.summary()).cash, 50);
             await repo.collections.PaymentSettlement.updateOne({ _id: old }, { $set: { status: 'REVERTED' } });
+            await fund.syncSettlement(await repo.collections.PaymentSettlement.findOne({ _id: old }));
             assert.equal((await fund.summary()).cash, -250);
             await repo.collections.PaymentSettlement.deleteMany({ _id: { $in: [old, fresh] } });
             await repo.collections.PaymentSettlement.deleteOne({ _id: undated });

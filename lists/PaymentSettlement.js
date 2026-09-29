@@ -3,8 +3,10 @@ const { gql } = require('apollo-server-express');
 const code = require('../func/code');
 const SettlementService = require('../func/settlement');
 const executeAccounting = require('../func/accountingGraphQL');
+const SchoolFund = require('../func/schoolFund');
+let schoolFundKeystone = null;
 
-module.exports = {
+const config = {
     fields: {
         code: {
             type: Text,
@@ -160,6 +162,18 @@ module.exports = {
                     throw e;
                 }
             }
+            if (schoolFundKeystone) {
+                const fund = new SchoolFund(schoolFundKeystone);
+                try { await fund.syncSettlement(updatedItem); } catch (_) { await fund.invalidateEntries(); }
+            }
+        },
+        afterDelete: async ({ existingItem, context }) => {
+            if (schoolFundKeystone) {
+                const fund = new SchoolFund(schoolFundKeystone);
+                try { await fund.deleteSettlement(existingItem); } catch (_) { await fund.invalidateEntries(); }
+            }
         }
     }
 };
+Object.defineProperty(config, 'setKeystone', { value: keystone => { schoolFundKeystone = keystone; }, enumerable: false });
+module.exports = config;

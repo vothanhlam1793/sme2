@@ -173,12 +173,13 @@ function createParentPortalRouter(keystone) {
             }));
 
             // 2. Lấy kỳ kết sổ / hóa đơn mới nhất của phụ huynh
+            const studentIds = students.map(s => s.id).filter(Boolean);
             const hoaDonsQuery = gql`
-                query GetParentInvoices($parentId: ID!) {
+                query GetParentInvoices($parentId: ID!, $studentIds: [ID!]) {
                     allHoaDons(
                         where: { parent: { id: $parentId } }
                         sortBy: createdAt_DESC
-                        first: 5
+                        first: 10
                     ) {
                         id
                         code
@@ -194,26 +195,116 @@ function createParentPortalRouter(keystone) {
                             quantity
                         }
                     }
+                    allItemKetSos(
+                        where: { hocsinh: { id_in: $studentIds } }
+                        sortBy: createdAt_DESC
+                        first: 10
+                    ) {
+                        id
+                        code
+                        data
+                        total
+                        createdAt
+                        hocsinh {
+                            name
+                        }
+                        phieuketso {
+                            code
+                        }
+                        lophoc {
+                            name
+                        }
+                    }
                 }
             `;
 
             const invoicesRes = await context.executeGraphQL({
                 context,
                 query: hoaDonsQuery,
-                variables: { parentId: parent.id }
+                variables: { parentId: parent.id, studentIds }
             });
 
             checkGraphQLResult(invoicesRes, 'allHoaDons');
-            const invoices = invoicesRes.data?.allHoaDons || [];
-            const latestInvoice = invoices[0] || null;
+            checkGraphQLResult(invoicesRes, 'allItemKetSos');
 
-            // 3. Lấy lịch sử gạch nợ / thanh toán (PaymentSettlement)
+            const rawHoaDons = (invoicesRes.data?.allHoaDons || []).map(inv => {
+                const invCode = inv.code || `HD${inv.id}`;
+                let invQr = `https://img.vietqr.io/image/${BANK_CONFIG.bankCode}-${BANK_CONFIG.accountNo}-compact2.png`;
+                invQr += `?accountName=${encodeURIComponent(BANK_CONFIG.accountName)}`;
+                invQr += `&addInfo=${encodeURIComponent(invCode.toUpperCase())}`;
+                if ((inv.total || 0) > 0) invQr += `&amount=${inv.total}`;
+
+                return {
+                    id: inv.id,
+                    code: inv.code,
+                    total: inv.total,
+                    studentName: inv.student?.name || '',
+                    createdAt: inv.createdAt,
+                    type: 'HOA_DON',
+                    vietqrUrl: invQr,
+                    items: inv.items || []
+                };
+            });
+
+            const rawItemKetSos = (invoicesRes.data?.allItemKetSos || []).map(iks => {
+                let dataObj = {};
+                try {
+                    if (iks.data) dataObj = JSON.parse(iks.data);
+                } catch (_) {}
+
+                const total = dataObj.total || iks.total || 0;
+                const items = [];
+                if (dataObj.hocphi) items.push({ name: 'Học phí', total: dataObj.hocphi, quantity: 1 });
+                if (dataObj.csvc) items.push({ name: 'Cơ sở vật chất', total: dataObj.csvc, quantity: 1 });
+                if (dataObj.camera) items.push({ name: 'Tiền camera', total: dataObj.camera, quantity: 1 });
+                if (dataObj.an545) items.push({ name: 'Tiền ăn chiều', total: dataObj.an545, quantity: 1 });
+                if (dataObj.ngoaigio) items.push({ name: 'Tiền ngoài giờ', total: dataObj.ngoaigio, quantity: 1 });
+                if (dataObj.khac) items.push({ name: 'Khoản thu khác', total: dataObj.khac, quantity: 1 });
+                if (dataObj.thanhtiennghi) items.push({ name: `Trừ tiền ngày nghỉ (${dataObj.ngaynghi || 0} ngày)`, total: -Math.abs(dataObj.thanhtiennghi), quantity: dataObj.ngaynghi || 1 });
+
+                const pksCode = iks.phieuketso?.code || '';
+                const codeDisplay = iks.code || (pksCode ? `KS_${pksCode}` : `KS${iks.id}`);
+                const monthDisplay = pksCode ? pksCode.replace('_', '/') : '';
+
+                let fallbackDate = iks.createdAt;
+                if (!fallbackDate && pksCode && /^\d{4}_\d{2}$/.test(pksCode)) {
+                    const [y, m] = pksCode.split('_');
+                    fallbackDate = `${y}-${m}-01T00:00:00.000Z`;
+                }
+
+                let ksQr = `https://img.vietqr.io/image/${BANK_CONFIG.bankCode}-${BANK_CONFIG.accountNo}-compact2.png`;
+                ksQr += `?accountName=${encodeURIComponent(BANK_CONFIG.accountName)}`;
+                ksQr += `&addInfo=${encodeURIComponent(codeDisplay.toUpperCase())}`;
+                if (total > 0) ksQr += `&amount=${total}`;
+
+                return {
+                    id: iks.id,
+                    code: codeDisplay,
+                    total: total,
+                    studentName: iks.hocsinh?.name || '',
+                    createdAt: fallbackDate,
+                    type: 'KET_SO',
+                    month: monthDisplay,
+                    vietqrUrl: ksQr,
+                    items: items
+                };
+            });
+
+            // Gộp Hóa đơn và Phiếu kết sổ, sắp xếp theo thời gian mới nhất
+            const formattedInvoices = [...rawHoaDons, ...rawItemKetSos].sort((a, b) => {
+                const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return tB - tA;
+            });
+            const latestInvoice = formattedInvoices[0] || null;
+
+            // 3. Lấy lịch sử thu tiền / gạch nợ / thanh toán (PaymentSettlement + PhieuThu)
             const settlementsQuery = gql`
                 query GetSettlements($parentId: ID!) {
                     allPaymentSettlements(
                         where: { parent: { id: $parentId }, status: SUCCESS }
                         sortBy: settledAt_DESC
-                        first: 5
+                        first: 10
                     ) {
                         id
                         code
@@ -221,6 +312,18 @@ function createParentPortalRouter(keystone) {
                         settledAt
                         settleType
                         note
+                    }
+                    allPhieuThus(
+                        where: { parent: { id: $parentId } }
+                        sortBy: createdAt_DESC
+                        first: 10
+                    ) {
+                        id
+                        code
+                        total
+                        createdAt
+                        ghichu
+                        itemThu
                     }
                 }
             `;
@@ -232,7 +335,10 @@ function createParentPortalRouter(keystone) {
             });
 
             checkGraphQLResult(settlementsRes, 'allPaymentSettlements');
-            const paymentHistory = (settlementsRes.data?.allPaymentSettlements || []).map(st => ({
+            checkGraphQLResult(settlementsRes, 'allPhieuThus');
+            
+            const rawSettlements = (settlementsRes.data?.allPaymentSettlements || []).map(st => ({
+                id: st.id,
                 code: st.code,
                 amount: st.amount,
                 settledAt: st.settledAt,
@@ -240,12 +346,28 @@ function createParentPortalRouter(keystone) {
                 note: st.note
             }));
 
+            const rawPhieuThus = (settlementsRes.data?.allPhieuThus || []).map(pt => ({
+                id: pt.id,
+                code: pt.code,
+                amount: pt.total,
+                settledAt: pt.createdAt,
+                method: 'Thu tiền trực tiếp',
+                note: pt.ghichu || pt.itemThu || 'Phiếu thu học phí'
+            }));
+
+            // Hợp nhất và sắp xếp giảm dần theo thời gian
+            const paymentHistory = [...rawSettlements, ...rawPhieuThus].sort((a, b) => {
+                const tA = a.settledAt ? new Date(a.settledAt).getTime() : 0;
+                const tB = b.settledAt ? new Date(b.settledAt).getTime() : 0;
+                return tB - tA;
+            });
+
             // 4. Tạo mã VietQR chuẩn hóa
             const amountToPay = Math.max(0, parent.debt || 0);
             const parentCode = parent.code || `PH${parent.id}`;
             const qrContent = parentCode.toUpperCase(); // Nội dung chuyển khoản bắt buộc là Mã Phụ huynh
             
-            let vietqrUrl = `https://img.vietqr.io/image/${BANK_CONFIG.bankCode}-${BANK_CONFIG.accountNo}-print.png`;
+            let vietqrUrl = `https://img.vietqr.io/image/${BANK_CONFIG.bankCode}-${BANK_CONFIG.accountNo}-compact2.png`;
             vietqrUrl += `?accountName=${encodeURIComponent(BANK_CONFIG.accountName)}`;
             vietqrUrl += `&addInfo=${encodeURIComponent(qrContent)}`;
             if (amountToPay > 0) {
@@ -273,14 +395,8 @@ function createParentPortalRouter(keystone) {
                         amount: amountToPay,
                         qrImageUrl: vietqrUrl
                     },
-                    latestInvoice: latestInvoice ? {
-                        id: latestInvoice.id,
-                        code: latestInvoice.code,
-                        total: latestInvoice.total,
-                        studentName: latestInvoice.student?.name || '',
-                        createdAt: latestInvoice.createdAt,
-                        items: latestInvoice.items || []
-                    } : null,
+                    latestInvoice: formattedInvoices[0] || null,
+                    invoices: formattedInvoices,
                     notifications: relevantNotifs,
                     paymentHistory
                 }

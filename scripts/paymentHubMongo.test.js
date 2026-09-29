@@ -141,9 +141,16 @@ test('actual PaymentHub HTTP routes -> explicitly bound native Mongo fixture', {
       const state = ok(await request('/school-fund', undefined, adminHeaders));
       assert.equal(state.rows[0].userId, admin.id);
       assert.equal(state.rows[0].after, state.cash);
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+      const filtered = ok(await request(`/school-fund?from=${today}&to=${today}`, undefined, adminHeaders));
+      assert.equal(filtered.periodIncome, 100);
+      assert.equal(filtered.periodExpense, 0);
+      assert.equal(filtered.total, 1);
       const reverse = { operationId: 'http-fund-reverse', voucherId: posted.id, reason: 'Hủy phiếu' };
       assert.equal(ok(await request('/school-fund/reversals', reverse, adminHeaders)).cash, before.cash);
       assert.equal((await request('/school-fund?page=bad', undefined, adminHeaders)).status, 400);
+      assert.equal((await request('/school-fund?from=2026-02-30&to=2026-03-01', undefined, adminHeaders)).status, 400);
+      assert.equal((await request('/school-fund?from=2026-03-02&to=2026-03-01', undefined, adminHeaders)).status, 400);
     });
     const snapshot = async () => {
       const collections = [...Object.values(repo.collections), settings, repo.operations, repo.outbox, repo.sequences];

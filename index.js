@@ -61,9 +61,15 @@ keystone.createList('PhieuThu', require("./lists/PhieuThu"));
 keystone.createList('DiemDanh545', require("./lists/DiemDanh545"));
 keystone.createList('Log', require("./lists/Log"));
 keystone.createList('CashTransaction', require("./lists/CashTransaction"));
-keystone.createList('PaymentSettlement', require("./lists/PaymentSettlement"));
+const paymentSettlement = require("./lists/PaymentSettlement");
+paymentSettlement.setKeystone(keystone);
+keystone.createList('PaymentSettlement', paymentSettlement);
 keystone.createList('Notification', require("./lists/Notification"));
 keystone.createList('SystemSetting', require("./lists/SystemSetting"));
+keystone.createList('Fee', require("./lists/Fee"));
+keystone.createList('FeeDocumentLink', require("./lists/FeeDocumentLink"));
+keystone.createList('FeeDefinition', require("./lists/FeeDefinition"));
+keystone.createList('FeeGenerationRun', require("./lists/FeeGenerationRun"));
 
 require("./extend/g").extend(keystone);
 
