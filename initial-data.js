@@ -1,6 +1,3 @@
-const crypto = require('crypto');
-const randomString = () => crypto.randomBytes(6).hexSlice();
-
 module.exports = async keystone => {
   // Count existing users
   const {
@@ -17,30 +14,27 @@ module.exports = async keystone => {
   });
 
   if (count === 0) {
-    const password = randomString();
-    const email = 'admin@example.com';
+    const username = process.env.INITIAL_ADMIN_USERNAME;
+    const password = process.env.INITIAL_ADMIN_PASSWORD;
+    const email = process.env.INITIAL_ADMIN_EMAIL || '';
+    if (!username || !password || password.length < 8 || Buffer.byteLength(password) > 72) {
+      throw new Error('Empty database requires INITIAL_ADMIN_USERNAME and INITIAL_ADMIN_PASSWORD (8 characters minimum, 72 bytes maximum)');
+    }
 
     const { errors } = await keystone.executeGraphQL({
       context: keystone.createContext().sudo(),
-      query: `mutation initialUser($password: String, $email: String) {
-            createUser(data: {name: "Admin", email: $email, isAdmin: true, password: $password}) {
+      query: `mutation initialUser($username: String!, $password: String!, $email: String) {
+            createUser(data: {name: "Admin", username: $username, email: $email, isAdmin: true, password: $password}) {
               id
             }
           }`,
-      variables: { password, email },
+      variables: { username, password, email },
     });
 
     if (errors) {
-      console.log('failed to create initial user:');
-      console.log(errors);
+      throw new Error('Failed to create initial administrator');
     } else {
-      console.log(`
-
-      User created:
-        email: ${email}
-        password: ${password}
-      Please change these details after initial login.
-      `);
+      console.log('Initial administrator created; remove bootstrap credentials from environment.');
     }
   }
 };
