@@ -19,10 +19,16 @@ module.exports = {
             type: Select,
             options: [
                 { value: 'ALL_SCHOOL', label: 'Toàn trường' },
-                { value: 'CLASS', label: 'Theo lớp' }
+                { value: 'CLASS', label: 'Theo lớp' },
+                { value: 'PARENT', label: 'Riêng phụ huynh' }
             ],
             defaultValue: 'ALL_SCHOOL',
             isRequired: true
+        },
+        parent: {
+            type: Relationship,
+            ref: 'Parent',
+            many: false
         },
         classes: {
             type: Relationship,

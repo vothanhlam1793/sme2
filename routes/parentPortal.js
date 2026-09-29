@@ -131,13 +131,13 @@ function createParentPortalRouter(keystone) {
             // Lấy danh sách ID các lớp của con để query thông báo phù hợp
             const classIds = students.map(s => s.classId).filter(Boolean);
 
-            // 1. Lấy thông tin Thông báo (Toàn trường + Các lớp của bé)
+            // 1. Lấy thông tin Thông báo (Toàn trường + Các lớp của bé + Riêng phụ huynh)
             const notifQuery = gql`
                 query GetNotifications {
                     allNotifications(
                         where: { status: PUBLISHED }
                         sortBy: publishedAt_DESC
-                        first: 10
+                        first: 20
                     ) {
                         id
                         code
@@ -145,6 +145,9 @@ function createParentPortalRouter(keystone) {
                         content
                         scope
                         publishedAt
+                        parent {
+                            id
+                        }
                         classes {
                             id
                             name
@@ -157,11 +160,14 @@ function createParentPortalRouter(keystone) {
             checkGraphQLResult(notifRes, 'allNotifications');
             const allNotifs = notifRes.data?.allNotifications || [];
 
-            // Lọc thông báo toàn trường hoặc đúng lớp
+            // Lọc thông báo toàn trường, đúng lớp hoặc gửi riêng cho chính phụ huynh này
             const relevantNotifs = allNotifs.filter(n => {
                 if (n.scope === 'ALL_SCHOOL') return true;
                 if (n.scope === 'CLASS' && n.classes?.length > 0) {
                     return n.classes.some(c => classIds.includes(c.id));
+                }
+                if (n.scope === 'PARENT' && n.parent?.id === parent.id) {
+                    return true;
                 }
                 return false;
             }).map(n => ({
@@ -169,6 +175,7 @@ function createParentPortalRouter(keystone) {
                 code: n.code,
                 title: n.title,
                 content: n.content,
+                scope: n.scope,
                 publishedAt: n.publishedAt
             }));
 

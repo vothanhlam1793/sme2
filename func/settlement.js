@@ -264,6 +264,19 @@ class SettlementService {
             console.warn('[WS Hub Broadcast Warning]:', e.message);
         }
 
+        // Tự động tạo bản ghi Thông báo dành riêng cho Phụ huynh
+        await SettlementService.createPaymentNotification(context, {
+            parentId,
+            amount: numAmount,
+            transactionCode: cashTx.code,
+            paymentMethod,
+            remainingBalance: Math.max(0, currentBalance),
+            remainingDebt: Math.max(0, currentDebt),
+            settledAmount: totalSettled,
+            bankRef,
+            description: cashTxData.bankDescription
+        });
+
         return {
             success: true,
             cashTransaction: {
@@ -811,6 +824,19 @@ class SettlementService {
             console.warn('[WS Hub Broadcast Warning]:', e.message);
         }
 
+        // Tự động tạo bản ghi Thông báo dành riêng cho Phụ huynh
+        await SettlementService.createPaymentNotification(context, {
+            parentId,
+            amount: numAmount,
+            transactionCode: tx.code,
+            paymentMethod: tx.paymentMethod || 'MANUAL_ALLOCATION',
+            remainingBalance: Math.max(0, currentBalance),
+            remainingDebt: Math.max(0, currentDebt),
+            settledAmount: totalSettled,
+            bankRef: tx.bankRef || '',
+            description: note || 'Dòng tiền đã được gán vào hồ sơ bé'
+        });
+
         return {
             success: true,
             cashTransactionId: cashTxId,
@@ -821,6 +847,78 @@ class SettlementService {
             remainingDebt: Math.max(0, currentDebt),
             settlements
         };
+    }
+
+    /**
+     * Tự động tạo bản ghi Thông báo dành riêng cho Phụ huynh khi nhận tiền thành công
+     */
+    static async createPaymentNotification(context, {
+        parentId,
+        amount,
+        transactionCode = '',
+        paymentMethod = 'CASH',
+        remainingBalance = 0,
+        remainingDebt = 0,
+        settledAmount = 0,
+        bankRef = '',
+        description = ''
+    }) {
+        if (!parentId) return;
+        try {
+            const formattedAmount = (amount || 0).toLocaleString('vi-VN');
+            const formattedSettled = (settledAmount || 0).toLocaleString('vi-VN');
+            const formattedBalance = (remainingBalance || 0).toLocaleString('vi-VN');
+            const formattedDebt = (remainingDebt || 0).toLocaleString('vi-VN');
+            const timeStr = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+
+            const title = `✅ Xác nhận đã nhận ${formattedAmount} đ thanh toán`;
+
+            let methodText = 'Chuyển khoản';
+            if (paymentMethod === 'CASH') methodText = 'Tiền mặt tại quầy';
+            else if (paymentMethod === 'ACB_BANK') methodText = 'Chuyển khoản ACB';
+            else if (paymentMethod === 'MONA_PAY') methodText = 'Chuyển khoản tự động';
+
+            let content = `Nhà trường đã nhận thành công ${formattedAmount} đ (${methodText}) vào lúc ${timeStr}.\n`;
+            if (transactionCode || bankRef) {
+                content += `▫ Mã giao dịch / Bút toán: ${transactionCode || bankRef}\n`;
+            }
+            if (description && description !== 'Thu tiền mặt tại quầy' && description !== 'Chuyển khoản') {
+                content += `▫ Nội dung: ${description}\n`;
+            }
+            if (settledAmount > 0) {
+                content += `▫ Đã cấn trừ học phí: ${formattedSettled} đ\n`;
+            }
+            content += `▫ Số dư ví hiện tại: ${formattedBalance} đ\n`;
+            content += `▫ Công nợ còn lại: ${formattedDebt} đ\n`;
+            content += `Trân trọng cảm ơn Quý phụ huynh!`;
+
+            const createNotifQuery = gql`
+                mutation CreateParentNotification($data: NotificationCreateInput!) {
+                    createNotification(data: $data) {
+                        id
+                        code
+                        title
+                    }
+                }
+            `;
+
+            await executeAccounting(context, {
+                context,
+                query: createNotifQuery,
+                variables: {
+                    data: {
+                        title,
+                        content,
+                        scope: 'PARENT',
+                        parent: { connect: { id: parentId } },
+                        status: 'PUBLISHED',
+                        publishedAt: new Date().toISOString()
+                    }
+                }
+            });
+        } catch (err) {
+            console.warn('[Notification Create Warning]:', err.message);
+        }
     }
 }
 

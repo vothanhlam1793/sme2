@@ -8,6 +8,7 @@ const SchoolFund = require('../func/schoolFund');
 const { FeeDomain } = require('../func/feeDomain');
 const { FeeGenerationService } = require('../func/feeGenerationService');
 const { InvoiceService } = require('../func/invoiceService');
+const WithdrawalSettlementService = require('../func/withdrawalSettlementService');
 
 function createPaymentHubRouter(keystone, { contextFactory = options => keystone.createContext(options) } = {}) {
   const router = express.Router();
@@ -77,6 +78,7 @@ function createPaymentHubRouter(keystone, { contextFactory = options => keystone
   const feeDomain = () => new FeeDomain(keystone);
   const feeGenService = () => new FeeGenerationService(keystone);
   const invoiceService = () => new InvoiceService(keystone);
+  const withdrawalService = () => new WithdrawalSettlementService(keystone);
 
   management.post('/invoices/admission', handle(async (req, res) => {
     const service = invoiceService();
@@ -94,6 +96,19 @@ function createPaymentHubRouter(keystone, { contextFactory = options => keystone
     const service = invoiceService();
     const result = await service.getInvoiceDetail(userContext(req), req.params.id);
     res.json({ success: true, data: result });
+  }));
+
+  // WITHDRAWAL SETTLEMENT (KẾT SỔ NGHỈ HỌC)
+  management.get('/settlements/withdrawal-preview', handle(async (req, res) => {
+    const { studentId, month, year } = req.query;
+    if (!studentId) return res.status(400).json({ success: false, error: 'Thiếu studentId' });
+    const result = await withdrawalService().getWithdrawalPreview(userContext(req), { studentId, month, year });
+    res.json({ success: true, data: result });
+  }));
+
+  management.post('/settlements/withdrawal', handle(async (req, res) => {
+    const result = await withdrawalService().executeWithdrawalSettlement(userContext(req), req.body || {}, req.user?.id || req.user?._id);
+    res.json(result);
   }));
 
   management.get('/fee-definitions', handle(async (req, res) => {
